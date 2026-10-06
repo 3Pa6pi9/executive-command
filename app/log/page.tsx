@@ -7,6 +7,9 @@ export default function LogPage() {
   const [session, setSession] = useState<any>(null);
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
   
+  // Toggle between Login and Sign Up mode
+  const [isLoginMode, setIsLoginMode] = useState(true);
+  
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
 
@@ -26,22 +29,45 @@ export default function LogPage() {
     return () => subscription.unsubscribe();
   }, []);
 
-  const handleLogin = async (e: React.FormEvent) => {
+  const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
-    setStatus({ type: "loading", msg: "Authenticating..." });
+    setStatus({ type: "loading", msg: isLoginMode ? "Authenticating..." : "Provisioning Account..." });
 
-    // Secretly format the username into the required dummy email
-    const formattedEmail = `${username.toLowerCase().trim()}@amanzone.com.et`;
+    // Swapped to the isolated domain structure
+    const formattedEmail = `${username.toLowerCase().trim()}@executive-command.local`;
 
-    const { error } = await supabase.auth.signInWithPassword({ 
-      email: formattedEmail, 
-      password 
-    });
+    if (isLoginMode) {
+      // LOGIN LOGIC
+      const { error } = await supabase.auth.signInWithPassword({ 
+        email: formattedEmail, 
+        password 
+      });
 
-    if (error) {
-      setStatus({ type: "error", msg: "Invalid username or passcode." });
+      if (error) {
+        setStatus({ type: "error", msg: "Invalid Handler ID or Passcode." });
+      } else {
+        setStatus({ type: "idle", msg: "" });
+      }
     } else {
-      setStatus({ type: "idle", msg: "" });
+      // SIGN UP LOGIC
+      if (password.length < 6) {
+        setStatus({ type: "error", msg: "Passcode must be at least 6 characters." });
+        return;
+      }
+
+      const { error } = await supabase.auth.signUp({ 
+        email: formattedEmail, 
+        password 
+      });
+
+      if (error) {
+        setStatus({ type: "error", msg: error.message.includes("already registered") 
+          ? "This Handler ID is already taken." 
+          : error.message 
+        });
+      } else {
+        setStatus({ type: "idle", msg: "" });
+      }
     }
   };
 
@@ -59,7 +85,6 @@ export default function LogPage() {
 
     setStatus({ type: "loading", msg: "Submitting link..." });
     
-    // Extract just the username back out of the dummy email (e.g. "manager1")
     const handlerIdentity = session.user.email.split("@")[0]; 
 
     try {
@@ -93,11 +118,15 @@ export default function LogPage() {
         {!session ? (
           <>
             <div className="space-y-2 text-center relative z-10">
-              <h1 className="text-2xl font-bold tracking-tight text-white">Fleet Authentication</h1>
-              <p className="text-sm text-zinc-400">Authorized personnel only.</p>
+              <h1 className="text-2xl font-bold tracking-tight text-white">
+                {isLoginMode ? "Fleet Authentication" : "Register Handler"}
+              </h1>
+              <p className="text-sm text-zinc-400">
+                {isLoginMode ? "Authorized personnel only." : "Create your secure KPI account."}
+              </p>
             </div>
 
-            <form onSubmit={handleLogin} className="space-y-6 relative z-10">
+            <form onSubmit={handleAuth} className="space-y-6 relative z-10">
               <div className="space-y-4">
                 <div>
                   <label className="block text-xs font-medium text-zinc-400 uppercase tracking-wider mb-2">Handler ID</label>
@@ -107,7 +136,7 @@ export default function LogPage() {
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
                     className="w-full rounded-lg border border-zinc-800 bg-zinc-900 px-4 py-3 text-sm text-white focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors"
-                    placeholder="e.g. manager1"
+                    placeholder={isLoginMode ? "e.g. manager1" : "Choose a unique ID"}
                   />
                 </div>
                 <div>
@@ -134,9 +163,23 @@ export default function LogPage() {
                 disabled={status.type === "loading"}
                 className="w-full rounded-lg bg-white px-4 py-3 text-sm font-bold text-black hover:bg-zinc-200 focus:outline-none transition-all disabled:opacity-50"
               >
-                {status.type === "loading" ? "Verifying..." : "Secure Login"}
+                {status.type === "loading" 
+                  ? "Processing..." 
+                  : isLoginMode ? "Secure Login" : "Create Account"}
               </button>
             </form>
+
+            <div className="pt-4 border-t border-zinc-800/50 mt-6 relative z-10 text-center">
+              <button 
+                onClick={() => {
+                  setIsLoginMode(!isLoginMode);
+                  setStatus({ type: "idle", msg: "" });
+                }}
+                className="text-xs text-blue-400 hover:text-blue-300 transition-colors"
+              >
+                {isLoginMode ? "Don't have an ID? Register here." : "Already have an ID? Log in."}
+              </button>
+            </div>
           </>
         ) : (
           <>

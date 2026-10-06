@@ -51,13 +51,43 @@ export default async function ExecutiveDashboard() {
                 {logs && logs.length > 0 ? (
                   logs.map((log) => {
                     // Evaluate validity on the fly
+                    let statusLabel = "Invalid URL";
+                    let statusColor = "bg-red-500/10 text-red-400 ring-red-500/20";
                     let isValid = false;
+
                     try {
                       const parsed = new URL(log.url);
                       const validHosts = ["facebook.com", "www.facebook.com", "m.facebook.com", "web.facebook.com", "fb.com", "fb.watch"];
-                      isValid = validHosts.includes(parsed.hostname);
+                      const isFbDomain = validHosts.includes(parsed.hostname);
+
+                      if (!isFbDomain) {
+                        statusLabel = "Invalid Domain";
+                      } else {
+                        const path = parsed.pathname.toLowerCase();
+                        
+                        // Check if it has a post-specific path (images, videos, permalinks)
+                        const isPost = path.includes("/posts/") || 
+                                       path.includes("/permalink.php") || 
+                                       path.includes("/videos/") || 
+                                       path.includes("/photo") || 
+                                       path.includes("/watch") || 
+                                       path.includes("/story.php") ||
+                                       parsed.hostname === "fb.watch"; // fb.watch links are exclusively video posts
+
+                        // Exclude generic creation routes or raw homepages
+                        const isCreation = path.includes("/create") || path === "/";
+
+                        if (isPost && !isCreation) {
+                          isValid = true;
+                          statusLabel = "Valid";
+                          statusColor = "bg-emerald-500/10 text-emerald-400 ring-emerald-500/20";
+                        } else {
+                          statusLabel = "Not a Post Link";
+                          statusColor = "bg-amber-500/10 text-amber-400 ring-amber-500/20"; // Yellow warning badge
+                        }
+                      }
                     } catch (e) {
-                      isValid = false;
+                      statusLabel = "Invalid Format";
                     }
 
                     return (
@@ -71,15 +101,9 @@ export default async function ExecutiveDashboard() {
                           {log.handler_name}
                         </td>
                         <td className="px-6 py-4">
-                          {isValid ? (
-                            <span className="inline-flex items-center rounded-full bg-emerald-500/10 px-2 py-1 text-xs font-medium text-emerald-400 ring-1 ring-inset ring-emerald-500/20">
-                              Valid
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center rounded-full bg-red-500/10 px-2 py-1 text-xs font-medium text-red-400 ring-1 ring-inset ring-red-500/20">
-                              Invalid Domain
-                            </span>
-                          )}
+                          <span className={`inline-flex items-center rounded-full px-2 py-1 text-xs font-medium ring-1 ring-inset ${statusColor}`}>
+                            {statusLabel}
+                          </span>
                         </td>
                         <td className="px-6 py-4">
                           <a 
