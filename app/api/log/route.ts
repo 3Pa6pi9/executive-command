@@ -3,21 +3,15 @@ import { createClient } from "@supabase/supabase-js";
 
 export async function POST(request: Request) {
   try {
-    const { url, handler_name, reach, views, likes, comments, shares, groups_joined } = await request.json();
+    const { url, handler_name, reach, views, likes, comments, shares, groups_joined, followers } = await request.json();
     const authHeader = request.headers.get("Authorization");
     
-    if (!url || !handler_name) {
-      return NextResponse.json({ error: "Missing required fields." }, { status: 400 });
-    }
-    if (!authHeader) {
-      return NextResponse.json({ error: "Unauthorized: Missing session token." }, { status: 401 });
-    }
+    if (!url || !handler_name) return NextResponse.json({ error: "Missing required fields." }, { status: 400 });
+    if (!authHeader) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
 
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
     const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
-    const secureSupabase = createClient(supabaseUrl, supabaseKey, {
-      global: { headers: { Authorization: authHeader } }
-    });
+    const secureSupabase = createClient(supabaseUrl, supabaseKey, { global: { headers: { Authorization: authHeader } } });
 
     const { data: settings } = await secureSupabase.from("system_settings").select("max_post_age_hours").eq("id", 1).single();
     const maxAgeHours = settings?.max_post_age_hours || 24;
@@ -27,48 +21,28 @@ export async function POST(request: Request) {
     const appToken = fbAppId && fbSecret ? `${fbAppId}|${fbSecret}` : null;
     const cleanUrl = url.trim();
 
-    // 1. Anti-Cheat Check
     const { data: existing } = await secureSupabase.from("campaign_links").select("handler_name").eq("url", cleanUrl).single();
-    if (existing) {
-      return NextResponse.json({ error: `Duplicate: Already logged by ${existing.handler_name}` }, { status: 400 });
-    }
+    if (existing) return NextResponse.json({ error: `Duplicate: Logged by ${existing.handler_name}` }, { status: 400 });
 
-    // 2. Facebook Graph API Gatekeeper
     if (appToken) {
       try {
         const fbRes = await fetch(`https://graph.facebook.com/v19.0/?id=${encodeURIComponent(cleanUrl)}&access_token=${appToken}`);
         const fbData = await fbRes.json();
         if (fbData.created_time || fbData.updated_time) {
-          const postDate = new Date(fbData.created_time || fbData.updated_time);
-          const hoursOld = (new Date().getTime() - postDate.getTime()) / (1000 * 60 * 60);
-          if (hoursOld > maxAgeHours) {
-            return NextResponse.json({ error: `Rejected: Post is ${Math.round(hoursOld)}h old (Max ${maxAgeHours}h)` }, { status: 400 });
-          }
+          const hoursOld = (new Date().getTime() - new Date(fbData.created_time || fbData.updated_time).getTime()) / 3600000;
+          if (hoursOld > maxAgeHours) return NextResponse.json({ error: `Rejected: Post is ${Math.round(hoursOld)}h old (Max ${maxAgeHours}h)` }, { status: 400 });
         }
-      } catch (fbError) {
-         console.warn("FB API Check Skipped");
-      }
+      } catch (e) { console.warn("FB API Check Skipped"); }
     }
 
-    // 3. Database Insertion with MEL Metrics
     const { data, error } = await secureSupabase.from("campaign_links").insert([{ 
-      url: cleanUrl, 
-      handler_name,
-      reach: parseInt(reach) || 0,
-      views: parseInt(views) || 0,
-      likes: parseInt(likes) || 0,
-      comments: parseInt(comments) || 0,
-      shares: parseInt(shares) || 0,
-      groups_joined: parseInt(groups_joined) || 0
+      url: cleanUrl, handler_name,
+      reach: parseInt(reach) || 0, views: parseInt(views) || 0, likes: parseInt(likes) || 0,
+      comments: parseInt(comments) || 0, shares: parseInt(shares) || 0, groups_joined: parseInt(groups_joined) || 0,
+      followers: parseInt(followers) || 0
     }]);
 
-    if (error) {
-       if (error.code === '23505') return NextResponse.json({ error: "Duplicate link detected." }, { status: 400 });
-       return NextResponse.json({ error: "Database error." }, { status: 500 });
-    }
-
+    if (error) return NextResponse.json({ error: error.code === '23505' ? "Duplicate link detected." : "Database error." }, { status: 500 });
     return NextResponse.json({ success: true, data });
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  }
+  } catch (error: any) { return NextResponse.json({ error: error.message }, { status: 500 }); }
 }
