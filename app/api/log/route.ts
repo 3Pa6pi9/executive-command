@@ -19,6 +19,10 @@ export async function POST(request: Request) {
       global: { headers: { Authorization: authHeader } }
     });
 
+    // Fetch the dynamic max post age setting from the database
+    const { data: settings } = await secureSupabase.from("system_settings").select("max_post_age_hours").eq("id", 1).single();
+    const maxAgeHours = settings?.max_post_age_hours || 24;
+
     const fbAppId = process.env.FB_APP_ID;
     const fbSecret = process.env.FB_APP_SECRET;
     const appToken = fbAppId && fbSecret ? `${fbAppId}|${fbSecret}` : null;
@@ -45,8 +49,10 @@ export async function POST(request: Request) {
             if (fbData.created_time || fbData.updated_time) {
               const postDate = new Date(fbData.created_time || fbData.updated_time);
               const hoursOld = (new Date().getTime() - postDate.getTime()) / (1000 * 60 * 60);
-              if (hoursOld > 48) {
-                results.push({ url, status: "error", msg: `Rejected: Post is ${Math.round(hoursOld)}h old (Max 48h)` });
+              
+              // Dynamic Age Validation
+              if (hoursOld > maxAgeHours) {
+                results.push({ url, status: "error", msg: `Rejected: Post is ${Math.round(hoursOld)}h old (Max ${maxAgeHours}h)` });
                 continue;
               }
             }
@@ -58,7 +64,6 @@ export async function POST(request: Request) {
         // 3. Database Insertion
         const { error } = await secureSupabase.from("campaign_links").insert([{ url, handler_name }]);
         if (error) {
-           // Fallback in case of race condition catching the UNIQUE constraint
            if (error.code === '23505') results.push({ url, status: "error", msg: "Duplicate link detected." });
            else results.push({ url, status: "error", msg: "Database error." });
         } else {

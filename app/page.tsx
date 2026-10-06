@@ -16,8 +16,10 @@ export default function ExecutiveDashboard() {
   // Dynamic Settings
   const [dailyTarget, setDailyTarget] = useState(20);
   const [motd, setMotd] = useState("");
+  const [maxPostAge, setMaxPostAge] = useState(24);
   const [newTargetInput, setNewTargetInput] = useState("");
   const [newMotdInput, setNewMotdInput] = useState("");
+  const [newMaxPostAgeInput, setNewMaxPostAgeInput] = useState("");
   
   const [selectedHandler, setSelectedHandler] = useState<string>("All");
   const [dateFilter, setDateFilter] = useState<"All" | "Today" | "Week" | "Month">("All");
@@ -56,20 +58,33 @@ export default function ExecutiveDashboard() {
   };
 
   const fetchSettings = async () => {
-    const { data } = await supabase.from("system_settings").select("daily_target, motd").eq("id", 1).single();
-    if (data) { setDailyTarget(data.daily_target); setMotd(data.motd || ""); }
+    const { data } = await supabase.from("system_settings").select("daily_target, motd, max_post_age_hours").eq("id", 1).single();
+    if (data) { 
+      setDailyTarget(data.daily_target); 
+      setMotd(data.motd || ""); 
+      setMaxPostAge(data.max_post_age_hours || 24);
+    }
   };
 
   const handleUpdateSettings = async (e: React.FormEvent) => {
     e.preventDefault();
     const num = newTargetInput ? parseInt(newTargetInput) : dailyTarget;
     const message = newMotdInput !== "" ? newMotdInput : motd;
+    const maxAge = newMaxPostAgeInput ? parseInt(newMaxPostAgeInput) : maxPostAge;
     
-    if (isNaN(num) || num < 1) return alert("Invalid target number.");
-    const { error } = await supabase.from("system_settings").update({ daily_target: num, motd: message }).eq("id", 1);
+    if (isNaN(num) || num < 1 || isNaN(maxAge) || maxAge < 1) return alert("Invalid targets or age limits.");
+    const { error } = await supabase.from("system_settings").update({ daily_target: num, motd: message, max_post_age_hours: maxAge }).eq("id", 1);
     
     if (error) alert(`Error: ${error.message}`);
-    else { setDailyTarget(num); setMotd(message); setNewTargetInput(""); setNewMotdInput(""); alert("Platform Variables Synced."); }
+    else { 
+      setDailyTarget(num); 
+      setMotd(message); 
+      setMaxPostAge(maxAge);
+      setNewTargetInput(""); 
+      setNewMotdInput(""); 
+      setNewMaxPostAgeInput("");
+      alert("Platform Variables Synced."); 
+    }
   };
 
   const handleAdminLogin = async (e: React.FormEvent) => {
@@ -137,7 +152,6 @@ export default function ExecutiveDashboard() {
     return false;
   };
 
-  // Filtering & Processing
   const uniqueHandlers = Array.from(new Set(logs.map(l => l.handler_name)));
   let timeFilteredLogs = logs;
   const now = new Date();
@@ -149,7 +163,6 @@ export default function ExecutiveDashboard() {
   const validCount = filteredLogs.filter(l => checkURL(l.url)).length;
   const invalidCount = filteredLogs.length - validCount;
 
-  // Accuracy Matrix
   const todayStr = new Date().toDateString();
   const handlerStats = uniqueHandlers.map(handler => {
     const handlerTodayLogs = logs.filter(l => l.handler_name === handler && new Date(l.created_at).toDateString() === todayStr);
@@ -159,7 +172,6 @@ export default function ExecutiveDashboard() {
     return { handler, handlerValidCount, progressPct, accuracy };
   });
 
-  // Trend Graph Data (Last 7 Days)
   const trendData = Array.from({length: 7}).map((_, i) => {
     const d = new Date(); d.setDate(d.getDate() - (6 - i));
     const count = logs.filter(l => new Date(l.created_at).toDateString() === d.toDateString() && checkURL(l.url)).length;
@@ -294,9 +306,15 @@ export default function ExecutiveDashboard() {
                   <label className="text-xs font-bold uppercase text-blue-400/80">Message of the Day (MoTD)</label>
                   <input type="text" value={newMotdInput || motd} onChange={e => setNewMotdInput(e.target.value)} placeholder="Broadcast message to all handlers..." className="w-full rounded-lg bg-black border border-blue-500/30 px-4 py-3 text-sm text-blue-100 outline-none" />
                 </div>
-                <div className="flex flex-col gap-2">
-                  <label className="text-xs font-bold uppercase text-blue-400/80">Daily Quota Target</label>
-                  <input type="number" min="1" value={newTargetInput || dailyTarget} onChange={e => setNewTargetInput(e.target.value)} className="w-full md:w-1/3 rounded-lg bg-black border border-blue-500/30 px-4 py-3 text-sm text-blue-100 outline-none" />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="flex flex-col gap-2">
+                    <label className="text-xs font-bold uppercase text-blue-400/80">Daily Quota Target</label>
+                    <input type="number" min="1" value={newTargetInput || dailyTarget} onChange={e => setNewTargetInput(e.target.value)} className="w-full rounded-lg bg-black border border-blue-500/30 px-4 py-3 text-sm text-blue-100 outline-none" />
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <label className="text-xs font-bold uppercase text-blue-400/80">Max Post Age Limit (Hours)</label>
+                    <input type="number" min="1" value={newMaxPostAgeInput || maxPostAge} onChange={e => setNewMaxPostAgeInput(e.target.value)} className="w-full rounded-lg bg-black border border-blue-500/30 px-4 py-3 text-sm text-blue-100 outline-none" />
+                  </div>
                 </div>
                 <button type="submit" className="bg-blue-500 text-white px-6 py-2 rounded-lg text-sm font-bold hover:bg-blue-600">Sync Platform Variables</button>
               </form>
