@@ -3,6 +3,8 @@
 import { useState, useEffect } from "react";
 import { managerSupabase as supabase } from "@/lib/supabase";
 
+const DAILY_TARGET = 20;
+
 export default function LogPage() {
   const [session, setSession] = useState<any>(null);
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
@@ -66,7 +68,10 @@ export default function LogPage() {
     try {
       const res = await fetch("/api/log", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${session.access_token}` // PASSING THE VIP TOKEN TO API
+        },
         body: JSON.stringify({ url, handler_name: session.user.email.split("@")[0] }),
       });
       const data = await res.json();
@@ -93,9 +98,7 @@ export default function LogPage() {
           const path = p.pathname.toLowerCase();
           const validSegments = ["/posts/", "/permalink.php", "/videos/", "/photo", "/watch", "/story.php", "/reel/", "/reels/"];
           const isContent = p.hostname === "fb.watch" || validSegments.some(seg => path.includes(seg));
-          if (isContent && !path.includes("/create")) {
-            todaysValidCount++;
-          }
+          if (isContent && !path.includes("/create")) todaysValidCount++;
         }
       } catch {}
     }
@@ -106,25 +109,16 @@ export default function LogPage() {
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-black p-4 text-zinc-100">
       <div className="w-full max-w-md space-y-6">
-        
         <div className="rounded-2xl border border-zinc-800 bg-zinc-950 p-8 shadow-2xl relative overflow-hidden">
-          {session && (
-            <div className="absolute top-0 left-0 w-full h-1 bg-emerald-500/50"></div>
-          )}
+          {session && <div className="absolute top-0 left-0 w-full h-1 bg-emerald-500/50"></div>}
           {!session ? (
             <form onSubmit={handleAuth} className="space-y-6">
               <h1 className="text-2xl font-bold text-center">{isLoginMode ? "Fleet Authentication" : "Register Handler"}</h1>
               <input type="text" placeholder="Handler ID" required value={username} onChange={(e) => setUsername(e.target.value)} className="w-full rounded-lg bg-zinc-900 border border-zinc-800 p-3 text-sm focus:border-blue-500 outline-none" />
               <input type="password" placeholder="Passcode" required value={password} onChange={(e) => setPassword(e.target.value)} className="w-full rounded-lg bg-zinc-900 border border-zinc-800 p-3 text-sm focus:border-blue-500 outline-none" />
-              
               {status.type === "error" && <div className="text-red-400 text-sm">{status.msg}</div>}
-              
-              <button type="submit" disabled={status.type === "loading"} className="w-full bg-white text-black p-3 rounded-lg font-bold hover:bg-zinc-200">
-                {isLoginMode ? "Login" : "Register"}
-              </button>
-              <button type="button" onClick={() => setIsLoginMode(!isLoginMode)} className="w-full text-xs text-blue-400 mt-4">
-                {isLoginMode ? "Need an account?" : "Already have an ID?"}
-              </button>
+              <button type="submit" disabled={status.type === "loading"} className="w-full bg-white text-black p-3 rounded-lg font-bold hover:bg-zinc-200">{isLoginMode ? "Login" : "Register"}</button>
+              <button type="button" onClick={() => setIsLoginMode(!isLoginMode)} className="w-full text-xs text-blue-400 mt-4">{isLoginMode ? "Need an account?" : "Already have an ID?"}</button>
             </form>
           ) : (
             <div className="space-y-6">
@@ -132,67 +126,24 @@ export default function LogPage() {
                 <h1 className="text-2xl font-bold">Submit KPI</h1>
                 <p className="text-sm text-zinc-400">ID: {session.user.email.split("@")[0]}</p>
               </div>
-              
               <form onSubmit={handleSubmit} className="space-y-4">
                 <input type="url" placeholder="https://facebook.com/..." required value={url} onChange={(e) => setUrl(e.target.value)} className="w-full rounded-lg bg-zinc-900 border border-zinc-800 p-3 text-sm focus:border-blue-500 outline-none" />
                 {status.type !== "idle" && <div className={`text-sm ${status.type === "error" ? "text-red-400" : "text-emerald-400"}`}>{status.msg}</div>}
                 <button type="submit" disabled={status.type === "loading"} className="w-full bg-emerald-500 text-white p-3 rounded-lg font-bold hover:bg-emerald-600 transition-colors shadow-lg shadow-emerald-500/20">Submit Link</button>
               </form>
               
-              <div className="flex justify-between items-center pt-4 border-t border-zinc-800">
-                <div className="text-xs text-zinc-400">
-                  Today's Score: <span className="font-bold text-emerald-400">{todaysValidCount} valid</span>
+              <div className="pt-4 border-t border-zinc-800">
+                <div className="flex justify-between items-center mb-2">
+                  <div className="text-xs text-zinc-400">Today's Progress: <span className="font-bold text-emerald-400">{todaysValidCount} / {DAILY_TARGET}</span></div>
+                  <button onClick={() => supabase.auth.signOut()} className="text-xs text-zinc-500 hover:text-white transition-colors">Sign Out</button>
                 </div>
-                <button onClick={() => supabase.auth.signOut()} className="text-xs text-zinc-500 hover:text-white transition-colors">Sign Out</button>
+                <div className="w-full h-1.5 bg-zinc-900 rounded-full overflow-hidden">
+                  <div className="h-full bg-emerald-500 transition-all duration-500" style={{ width: `${Math.min(100, (todaysValidCount / DAILY_TARGET) * 100)}%` }}></div>
+                </div>
               </div>
             </div>
           )}
         </div>
-
-        {session && myLogs.length > 0 && (
-          <div className="rounded-2xl border border-zinc-800 bg-zinc-950 p-6 shadow-2xl animate-in fade-in slide-in-from-bottom-4">
-            <h2 className="text-sm font-bold text-zinc-400 uppercase tracking-wider mb-4 flex justify-between items-center">
-              Your History
-              <span className="text-xs text-zinc-500 lowercase font-normal">Last 50 links</span>
-            </h2>
-            <div className="space-y-3">
-              {myLogs.map(log => {
-                let statusLabel = "Invalid";
-                let statusColor = "bg-red-500/10 text-red-400";
-                try {
-                  const p = new URL(log.url.trim());
-                  const validHosts = ["facebook.com", "www.facebook.com", "m.facebook.com", "web.facebook.com", "fb.com", "fb.watch"];
-                  if (validHosts.includes(p.hostname)) {
-                    const path = p.pathname.toLowerCase();
-                    const validSegments = ["/posts/", "/permalink.php", "/videos/", "/photo", "/watch", "/story.php", "/reel/", "/reels/"];
-                    const isContent = p.hostname === "fb.watch" || validSegments.some(seg => path.includes(seg));
-                    if (isContent && !path.includes("/create")) {
-                      statusLabel = "Valid";
-                      statusColor = "bg-emerald-500/10 text-emerald-400";
-                    } else {
-                      statusLabel = "Bad Link";
-                      statusColor = "bg-amber-500/10 text-amber-400";
-                    }
-                  }
-                } catch {}
-
-                return (
-                  <div key={log.id} className="flex flex-col gap-1 p-3 rounded-lg bg-zinc-900 border border-zinc-800 hover:border-zinc-700 transition-colors">
-                    <div className="flex justify-between items-center">
-                      <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${statusColor}`}>
-                        {statusLabel}
-                      </span>
-                      <span className="text-xs text-zinc-500">{new Date(log.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
-                    </div>
-                    <a href={log.url} target="_blank" rel="noopener noreferrer" className={`truncate text-sm ${statusLabel === "Invalid" ? 'text-zinc-500 line-through' : 'text-blue-400 hover:underline'}`}>
-                      {log.url}
-                    </a>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-        )}
       </div>
     </div>
   );

@@ -1,13 +1,25 @@
 import { NextResponse } from "next/server";
-import { managerSupabase as supabase } from "@/lib/supabase";
+import { createClient } from "@supabase/supabase-js";
 
 export async function POST(request: Request) {
   try {
     const { url, handler_name } = await request.json();
+    const authHeader = request.headers.get("Authorization");
     
     if (!url || !handler_name) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
     }
+
+    if (!authHeader) {
+      return NextResponse.json({ error: "Unauthorized: Missing session token." }, { status: 401 });
+    }
+
+    // Create a secure Supabase client that uses the Manager's specific auth token to pass RLS
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+    const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
+    const secureSupabase = createClient(supabaseUrl, supabaseKey, {
+      global: { headers: { Authorization: authHeader } }
+    });
 
     // --- FACEBOOK API TIME-CHECK GATEKEEPER ---
     const fbAppId = process.env.FB_APP_ID;
@@ -19,7 +31,6 @@ export async function POST(request: Request) {
         const fbRes = await fetch(`https://graph.facebook.com/v19.0/?id=${encodeURIComponent(url)}&access_token=${appToken}`);
         const fbData = await fbRes.json();
 
-        // If Facebook returns a valid timestamp, verify the age
         if (fbData.created_time || fbData.updated_time) {
           const postDate = new Date(fbData.created_time || fbData.updated_time);
           const now = new Date();
@@ -32,13 +43,12 @@ export async function POST(request: Request) {
           }
         }
       } catch (fbError) {
-        // Silently continue if FB API blocks the read (e.g., due to Facebook's App Review limits)
         console.warn("Graph API Check Skipped:", fbError);
       }
     }
 
-    // --- DATABASE INSERTION ---
-    const { data, error } = await supabase
+    // --- DATABASE INSERTION (Now authorized!) ---
+    const { data, error } = await secureSupabase
       .from("campaign_links")
       .insert([{ url, handler_name }]);
 

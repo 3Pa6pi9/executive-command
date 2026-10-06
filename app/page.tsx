@@ -3,6 +3,8 @@
 import { adminSupabase as supabase } from "@/lib/supabase";
 import { useState, useEffect } from "react";
 
+const DAILY_TARGET = 20;
+
 export default function ExecutiveDashboard() {
   const [session, setSession] = useState<any>(null);
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
@@ -13,7 +15,6 @@ export default function ExecutiveDashboard() {
   const [logs, setLogs] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   
-  // Filters
   const [selectedHandler, setSelectedHandler] = useState<string>("All");
   const [dateFilter, setDateFilter] = useState<"All" | "Today" | "Week" | "Month">("All");
 
@@ -161,6 +162,26 @@ export default function ExecutiveDashboard() {
     } catch { invalidCount++; }
   });
 
+  // --- ADMIN FLEET MATRIX ---
+  const todayStr = new Date().toDateString();
+  const handlerStats = uniqueHandlers.map(handler => {
+    const handlerTodayLogs = logs.filter(l => l.handler_name === handler && new Date(l.created_at).toDateString() === todayStr);
+    let handlerValidCount = 0;
+    handlerTodayLogs.forEach(log => {
+      try {
+        const p = new URL(log.url.trim());
+        const validHosts = ["facebook.com", "www.facebook.com", "m.facebook.com", "web.facebook.com", "fb.com", "fb.watch"];
+        if (validHosts.includes(p.hostname)) {
+          const path = p.pathname.toLowerCase();
+          const validSegments = ["/posts/", "/permalink.php", "/videos/", "/photo", "/watch", "/story.php", "/reel/", "/reels/"];
+          if ((p.hostname === "fb.watch" || validSegments.some(seg => path.includes(seg))) && !path.includes("/create")) handlerValidCount++;
+        }
+      } catch {}
+    });
+    const progressPct = Math.min(100, Math.round((handlerValidCount / DAILY_TARGET) * 100));
+    return { handler, handlerValidCount, progressPct };
+  });
+
   // --- CSV EXPORT LOGIC ---
   const handleExportCSV = () => {
     const headers = ["Time", "Handler", "URL", "Status"];
@@ -197,13 +218,11 @@ export default function ExecutiveDashboard() {
             <h1 className="text-2xl font-bold text-white">Command Center</h1>
             <p className="text-sm text-zinc-400">Restricted Admin Access</p>
           </div>
-          
           <form onSubmit={handleAdminLogin} className="space-y-6">
             <div>
               <input type="password" required value={adminPasscode} onChange={(e) => setAdminPasscode(e.target.value)} placeholder="Master Passcode" className="w-full rounded-lg border border-zinc-800 bg-zinc-900 px-4 py-3 text-sm text-white focus:border-blue-500 outline-none text-center tracking-widest" />
             </div>
             {authStatus && <div className={`text-sm text-center ${authStatus.includes("Access Denied") || authStatus.includes("must be") ? "text-red-400" : "text-emerald-400"}`}>{authStatus}</div>}
-            
             <div className="space-y-3">
               <button type="submit" className="w-full rounded-lg bg-white px-4 py-3 text-sm font-bold text-black hover:bg-zinc-200 transition-all">Authenticate</button>
             </div>
@@ -223,26 +242,22 @@ export default function ExecutiveDashboard() {
               Executive Command
               <span className="relative flex h-3 w-3"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span><span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span></span>
             </h1>
-            
             <div className="flex gap-4">
               <button onClick={() => setActiveTab("dashboard")} className={`text-sm font-medium px-4 py-2 rounded-lg transition-colors ${activeTab === "dashboard" ? "bg-zinc-800 text-white" : "text-zinc-400 hover:bg-zinc-900 hover:text-white"}`}>Dashboard</button>
               <button onClick={() => setActiveTab("settings")} className={`text-sm font-medium px-4 py-2 rounded-lg transition-colors ${activeTab === "settings" ? "bg-zinc-800 text-white" : "text-zinc-400 hover:bg-zinc-900 hover:text-white"}`}>Settings & Fleet</button>
             </div>
           </div>
-
           <button onClick={() => supabase.auth.signOut()} className="text-sm font-medium text-zinc-500 hover:text-white">Sign Out</button>
         </div>
 
         {activeTab === "dashboard" && (
           <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4">
             <div className="flex flex-wrap items-center justify-between gap-4">
-              
               <div className="flex items-center gap-3">
                 <select value={selectedHandler} onChange={(e) => setSelectedHandler(e.target.value)} className="rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-1.5 text-sm text-white focus:border-blue-500 outline-none">
                   <option value="All">All Handlers</option>
                   {uniqueHandlers.map(h => <option key={h} value={h}>{h}</option>)}
                 </select>
-
                 <select value={dateFilter} onChange={(e: any) => setDateFilter(e.target.value)} className="rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-1.5 text-sm text-white focus:border-blue-500 outline-none">
                   <option value="All">All Time</option>
                   <option value="Today">Today</option>
@@ -250,14 +265,9 @@ export default function ExecutiveDashboard() {
                   <option value="Month">This Month</option>
                 </select>
               </div>
-
               <div className="flex items-center gap-3">
-                <button onClick={handleExportCSV} className="text-xs font-bold text-zinc-400 border border-zinc-800 px-4 py-2 rounded-lg hover:text-white hover:border-zinc-500 transition-colors">
-                  Export CSV
-                </button>
-                <button onClick={() => setIsAddingManager(!isAddingManager)} className="text-xs font-bold bg-white text-black px-4 py-2 rounded-lg hover:bg-zinc-200 transition-colors">
-                  {isAddingManager ? "Cancel Addition" : "+ Add New Manager"}
-                </button>
+                <button onClick={handleExportCSV} className="text-xs font-bold text-zinc-400 border border-zinc-800 px-4 py-2 rounded-lg hover:text-white hover:border-zinc-500 transition-colors">Export CSV</button>
+                <button onClick={() => setIsAddingManager(!isAddingManager)} className="text-xs font-bold bg-white text-black px-4 py-2 rounded-lg hover:bg-zinc-200 transition-colors">{isAddingManager ? "Cancel Addition" : "+ Add New Manager"}</button>
               </div>
             </div>
 
@@ -269,18 +279,33 @@ export default function ExecutiveDashboard() {
               </form>
             )}
 
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-4 flex flex-col items-center justify-center">
                 <span className="text-3xl font-bold text-white">{filteredLogs.length}</span>
                 <span className="text-xs font-medium uppercase tracking-wider text-zinc-500">Total KPIs</span>
               </div>
               <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-xl p-4 flex flex-col items-center justify-center">
                 <span className="text-3xl font-bold text-emerald-400">{validCount}</span>
-                <span className="text-xs font-medium uppercase tracking-wider text-emerald-500">Valid Links</span>
+                <span className="text-xs font-medium uppercase tracking-wider text-emerald-500">Valid</span>
               </div>
               <div className="bg-red-500/5 border border-red-500/20 rounded-xl p-4 flex flex-col items-center justify-center">
                 <span className="text-3xl font-bold text-red-400">{invalidCount}</span>
-                <span className="text-xs font-medium uppercase tracking-wider text-red-500">Invalid Links</span>
+                <span className="text-xs font-medium uppercase tracking-wider text-red-500">Invalid</span>
+              </div>
+              <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-4 flex flex-col justify-center space-y-3 overflow-y-auto max-h-32">
+                <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-1">Today's Fleet Velocity (Target: {DAILY_TARGET})</span>
+                {handlerStats.map(stat => (
+                  <div key={stat.handler} className="flex flex-col gap-1 w-full">
+                    <div className="flex justify-between text-xs">
+                      <span className="text-zinc-300 truncate w-16">{stat.handler}</span>
+                      <span className={stat.handlerValidCount >= DAILY_TARGET ? "text-emerald-400 font-bold" : "text-zinc-500"}>{stat.handlerValidCount}/{DAILY_TARGET}</span>
+                    </div>
+                    <div className="w-full h-1.5 bg-zinc-900 rounded-full overflow-hidden">
+                      <div className={`h-full ${stat.handlerValidCount >= DAILY_TARGET ? "bg-emerald-500" : "bg-blue-500"}`} style={{ width: `${stat.progressPct}%` }}></div>
+                    </div>
+                  </div>
+                ))}
+                {handlerStats.length === 0 && <span className="text-xs text-zinc-600">No data today.</span>}
               </div>
             </div>
 
@@ -312,7 +337,6 @@ export default function ExecutiveDashboard() {
                         }
                       }
                     } catch {}
-
                     return (
                       <tr key={log.id} className="hover:bg-zinc-900/80 group">
                         <td className="px-6 py-4 text-zinc-400">{new Date(log.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</td>
@@ -344,19 +368,15 @@ export default function ExecutiveDashboard() {
 
         {activeTab === "settings" && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 animate-in fade-in slide-in-from-bottom-4">
-            
             <div className="border border-zinc-800 bg-zinc-950 rounded-xl p-6 space-y-4 shadow-xl">
               <h2 className="text-lg font-bold text-white border-b border-zinc-800 pb-2">Command Security</h2>
-              <p className="text-sm text-zinc-400 mb-4">Update the master passcode for this dashboard.</p>
               <form onSubmit={handleUpdateMasterPasscode} className="space-y-3">
                 <input type="password" required value={newMasterPasscode} onChange={e => setNewMasterPasscode(e.target.value)} placeholder="New Master Passcode" className="w-full rounded-lg bg-zinc-900 border border-zinc-800 px-4 py-2 text-sm text-white outline-none focus:border-blue-500" />
                 <button type="submit" className="w-full bg-white text-black py-2 rounded-lg text-sm font-bold hover:bg-zinc-200">Update Passcode</button>
               </form>
             </div>
-
             <div className="border border-zinc-800 bg-zinc-950 rounded-xl p-6 space-y-4 shadow-xl">
               <h2 className="text-lg font-bold text-white border-b border-zinc-800 pb-2">Reset Handler Passcode</h2>
-              <p className="text-sm text-zinc-400 mb-4">Override and reset a forgotten manager passcode.</p>
               <form onSubmit={handleResetHandlerPasscode} className="space-y-3">
                 <select value={resetTarget} onChange={e => setResetTarget(e.target.value)} required className="w-full rounded-lg bg-zinc-900 border border-zinc-800 px-4 py-2 text-sm text-white outline-none focus:border-blue-500">
                   <option value="">Select Handler...</option>
@@ -366,19 +386,6 @@ export default function ExecutiveDashboard() {
                 <button type="submit" className="w-full bg-zinc-800 text-white py-2 rounded-lg text-sm font-bold hover:bg-zinc-700">Reset Account Access</button>
               </form>
             </div>
-
-            <div className="border border-red-500/20 bg-red-500/5 rounded-xl p-6 space-y-4 shadow-xl md:col-span-2 mt-4">
-              <h2 className="text-lg font-bold text-red-400 border-b border-red-500/20 pb-2">Danger Zone: Terminate Handler</h2>
-              <p className="text-sm text-red-400/80 mb-4">This permanently deletes the manager's login account and wipes all KPI data they ever submitted. This cannot be undone.</p>
-              <form onSubmit={handleTerminateHandler} className="flex flex-col sm:flex-row gap-4">
-                <select value={terminateTarget} onChange={e => setTerminateTarget(e.target.value)} required className="flex-1 rounded-lg bg-black border border-red-500/30 px-4 py-2 text-sm text-red-300 outline-none">
-                  <option value="">Select Handler to Terminate...</option>
-                  {uniqueHandlers.map(h => <option key={h} value={h}>{h}</option>)}
-                </select>
-                <button type="submit" className="bg-red-500 text-white px-6 py-2 rounded-lg text-sm font-bold hover:bg-red-600">Terminate & Purge</button>
-              </form>
-            </div>
-
           </div>
         )}
       </div>
