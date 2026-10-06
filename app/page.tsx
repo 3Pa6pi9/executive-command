@@ -12,7 +12,10 @@ export default function ExecutiveDashboard() {
   const [activeTab, setActiveTab] = useState<"dashboard" | "settings">("dashboard");
   const [logs, setLogs] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  
+  // Filters
   const [selectedHandler, setSelectedHandler] = useState<string>("All");
+  const [dateFilter, setDateFilter] = useState<"All" | "Today" | "Week" | "Month">("All");
 
   const [isAddingManager, setIsAddingManager] = useState(false);
   const [newManagerId, setNewManagerId] = useState("");
@@ -127,8 +130,21 @@ export default function ExecutiveDashboard() {
     if (selectedHandler === terminateTarget) setSelectedHandler("All");
   };
 
+  // --- FILTERING LOGIC ---
   const uniqueHandlers = Array.from(new Set(logs.map(l => l.handler_name)));
-  const filteredLogs = selectedHandler === "All" ? logs : logs.filter(l => l.handler_name === selectedHandler);
+  
+  let timeFilteredLogs = logs;
+  const now = new Date();
+  if (dateFilter === "Today") {
+    timeFilteredLogs = logs.filter(l => new Date(l.created_at).toDateString() === now.toDateString());
+  } else if (dateFilter === "Week") {
+    const lastWeek = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    timeFilteredLogs = logs.filter(l => new Date(l.created_at) >= lastWeek);
+  } else if (dateFilter === "Month") {
+    timeFilteredLogs = logs.filter(l => new Date(l.created_at).getMonth() === now.getMonth() && new Date(l.created_at).getFullYear() === now.getFullYear());
+  }
+
+  const filteredLogs = selectedHandler === "All" ? timeFilteredLogs : timeFilteredLogs.filter(l => l.handler_name === selectedHandler);
 
   let validCount = 0; let invalidCount = 0;
   filteredLogs.forEach(log => {
@@ -143,6 +159,30 @@ export default function ExecutiveDashboard() {
       } else invalidCount++;
     } catch { invalidCount++; }
   });
+
+  // --- CSV EXPORT LOGIC ---
+  const handleExportCSV = () => {
+    const headers = ["Time", "Handler", "URL", "Status"];
+    const rows = filteredLogs.map(log => {
+      let status = "Invalid";
+      try {
+        const p = new URL(log.url);
+        if (["facebook.com", "www.facebook.com", "m.facebook.com", "web.facebook.com", "fb.com", "fb.watch"].includes(p.hostname)) {
+          const path = p.pathname.toLowerCase();
+          if ((path.includes("/posts/") || path.includes("/permalink.php") || path.includes("/videos/") || p.hostname === "fb.watch") && !path.includes("/create")) {
+            status = "Valid";
+          } else { status = "Bad Link"; }
+        }
+      } catch {}
+      return `"${new Date(log.created_at).toLocaleString()}","${log.handler_name}","${log.url}","${status}"`;
+    });
+    const csvContent = [headers.join(","), ...rows].join("\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `Executive_Command_${dateFilter}_KPIs.csv`;
+    link.click();
+  };
 
   if (isCheckingAuth) return <div className="flex min-h-screen items-center justify-center bg-black text-zinc-500">Securing Connection...</div>;
 
@@ -193,15 +233,29 @@ export default function ExecutiveDashboard() {
         {activeTab === "dashboard" && (
           <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4">
             <div className="flex flex-wrap items-center justify-between gap-4">
+              
               <div className="flex items-center gap-3">
                 <select value={selectedHandler} onChange={(e) => setSelectedHandler(e.target.value)} className="rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-1.5 text-sm text-white focus:border-blue-500 outline-none">
                   <option value="All">All Handlers</option>
                   {uniqueHandlers.map(h => <option key={h} value={h}>{h}</option>)}
                 </select>
+
+                <select value={dateFilter} onChange={(e: any) => setDateFilter(e.target.value)} className="rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-1.5 text-sm text-white focus:border-blue-500 outline-none">
+                  <option value="All">All Time</option>
+                  <option value="Today">Today</option>
+                  <option value="Week">Last 7 Days</option>
+                  <option value="Month">This Month</option>
+                </select>
               </div>
-              <button onClick={() => setIsAddingManager(!isAddingManager)} className="text-xs font-bold bg-white text-black px-4 py-2 rounded-lg hover:bg-zinc-200">
-                {isAddingManager ? "Cancel Addition" : "+ Add New Manager"}
-              </button>
+
+              <div className="flex items-center gap-3">
+                <button onClick={handleExportCSV} className="text-xs font-bold text-zinc-400 border border-zinc-800 px-4 py-2 rounded-lg hover:text-white hover:border-zinc-500 transition-colors">
+                  Export CSV
+                </button>
+                <button onClick={() => setIsAddingManager(!isAddingManager)} className="text-xs font-bold bg-white text-black px-4 py-2 rounded-lg hover:bg-zinc-200 transition-colors">
+                  {isAddingManager ? "Cancel Addition" : "+ Add New Manager"}
+                </button>
+              </div>
             </div>
 
             {isAddingManager && (
@@ -212,22 +266,20 @@ export default function ExecutiveDashboard() {
               </form>
             )}
 
-            {selectedHandler !== "All" && (
-              <div className="grid grid-cols-3 gap-4">
-                <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-4 flex flex-col items-center justify-center">
-                  <span className="text-3xl font-bold text-white">{filteredLogs.length}</span>
-                  <span className="text-xs font-medium uppercase tracking-wider text-zinc-500">Total KPIs</span>
-                </div>
-                <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-xl p-4 flex flex-col items-center justify-center">
-                  <span className="text-3xl font-bold text-emerald-400">{validCount}</span>
-                  <span className="text-xs font-medium uppercase tracking-wider text-emerald-500">Valid Links</span>
-                </div>
-                <div className="bg-red-500/5 border border-red-500/20 rounded-xl p-4 flex flex-col items-center justify-center">
-                  <span className="text-3xl font-bold text-red-400">{invalidCount}</span>
-                  <span className="text-xs font-medium uppercase tracking-wider text-red-500">Invalid Links</span>
-                </div>
+            <div className="grid grid-cols-3 gap-4">
+              <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-4 flex flex-col items-center justify-center">
+                <span className="text-3xl font-bold text-white">{filteredLogs.length}</span>
+                <span className="text-xs font-medium uppercase tracking-wider text-zinc-500">Total KPIs</span>
               </div>
-            )}
+              <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-xl p-4 flex flex-col items-center justify-center">
+                <span className="text-3xl font-bold text-emerald-400">{validCount}</span>
+                <span className="text-xs font-medium uppercase tracking-wider text-emerald-500">Valid Links</span>
+              </div>
+              <div className="bg-red-500/5 border border-red-500/20 rounded-xl p-4 flex flex-col items-center justify-center">
+                <span className="text-3xl font-bold text-red-400">{invalidCount}</span>
+                <span className="text-xs font-medium uppercase tracking-wider text-red-500">Invalid Links</span>
+              </div>
+            </div>
 
             <div className="overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950 shadow-2xl">
               <table className="w-full text-left text-sm text-zinc-300">
