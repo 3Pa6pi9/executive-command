@@ -55,7 +55,7 @@ export default function LogPage() {
       setStatus(error ? { type: "error", msg: "Invalid ID or Passcode." } : { type: "idle", msg: "" });
     } else {
       const { error } = await supabase.auth.signUp({ email: formattedEmail, password });
-      setStatus(error ? { type: "error", msg error.message } : { type: "idle", msg: "" });
+      setStatus(error ? { type: "error", msg: error.message } : { type: "idle", msg: "" });
     }
   };
 
