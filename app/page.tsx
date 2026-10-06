@@ -217,7 +217,8 @@ export default function ExecutiveDashboard() {
           <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4">
             
             <div className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-6 shadow-2xl">
-              <h2 className="text-sm font-bold text-zinc-400 uppercase tracking-wider mb-6">7-Day KPI Velocity (Valid Network Submissions)</h2>
+              {/* RENAMED THE GRAPH TITLE HERE */}
+              <h2 className="text-sm font-bold text-zinc-400 uppercase tracking-wider mb-6">7-Day Post Rate and Performance</h2>
               <div className="flex items-end justify-between h-40 gap-2">
                 {trendData.map((d, i) => (
                   <div key={i} className="flex flex-col items-center gap-2 flex-1 group">
