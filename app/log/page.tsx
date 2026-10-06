@@ -3,8 +3,6 @@
 import { useState, useEffect } from "react";
 import { managerSupabase as supabase } from "@/lib/supabase";
 
-const DAILY_TARGET = 20;
-
 export default function LogPage() {
   const [session, setSession] = useState<any>(null);
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
@@ -16,23 +14,33 @@ export default function LogPage() {
   const [status, setStatus] = useState<{ type: "idle" | "loading" | "error" | "success"; msg: string }>({ type: "idle", msg: "" });
 
   const [myLogs, setMyLogs] = useState<any[]>([]);
+  const [dailyTarget, setDailyTarget] = useState(20);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
-      if (session?.user?.email) fetchMyLogs(session.user.email.split("@")[0]);
+      if (session?.user?.email) {
+        fetchMyLogs(session.user.email.split("@")[0]);
+        fetchSettings();
+      }
       setIsCheckingAuth(false);
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
-      if (session?.user?.email) fetchMyLogs(session.user.email.split("@")[0]);
+      if (session?.user?.email) {
+        fetchMyLogs(session.user.email.split("@")[0]);
+        fetchSettings();
+      }
     });
 
     const channel = supabase
       .channel('my-logs')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'campaign_links' }, () => {
         if (session?.user?.email) fetchMyLogs(session.user.email.split("@")[0]);
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'system_settings' }, () => {
+        if (session?.user?.email) fetchSettings();
       })
       .subscribe();
 
@@ -45,6 +53,11 @@ export default function LogPage() {
   const fetchMyLogs = async (handlerId: string) => {
     const { data } = await supabase.from("campaign_links").select("*").eq("handler_name", handlerId).order("created_at", { ascending: false }).limit(50);
     if (data) setMyLogs(data);
+  };
+
+  const fetchSettings = async () => {
+    const { data } = await supabase.from("system_settings").select("daily_target").eq("id", 1).single();
+    if (data) setDailyTarget(data.daily_target);
   };
 
   const handleAuth = async (e: React.FormEvent) => {
@@ -70,7 +83,7 @@ export default function LogPage() {
         method: "POST",
         headers: { 
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${session.access_token}` // PASSING THE VIP TOKEN TO API
+          "Authorization": `Bearer ${session.access_token}`
         },
         body: JSON.stringify({ url, handler_name: session.user.email.split("@")[0] }),
       });
@@ -134,11 +147,11 @@ export default function LogPage() {
               
               <div className="pt-4 border-t border-zinc-800">
                 <div className="flex justify-between items-center mb-2">
-                  <div className="text-xs text-zinc-400">Today's Progress: <span className="font-bold text-emerald-400">{todaysValidCount} / {DAILY_TARGET}</span></div>
+                  <div className="text-xs text-zinc-400">Today's Progress: <span className="font-bold text-emerald-400">{todaysValidCount} / {dailyTarget}</span></div>
                   <button onClick={() => supabase.auth.signOut()} className="text-xs text-zinc-500 hover:text-white transition-colors">Sign Out</button>
                 </div>
                 <div className="w-full h-1.5 bg-zinc-900 rounded-full overflow-hidden">
-                  <div className="h-full bg-emerald-500 transition-all duration-500" style={{ width: `${Math.min(100, (todaysValidCount / DAILY_TARGET) * 100)}%` }}></div>
+                  <div className="h-full bg-emerald-500 transition-all duration-500" style={{ width: `${Math.min(100, (todaysValidCount / dailyTarget) * 100)}%` }}></div>
                 </div>
               </div>
             </div>

@@ -3,8 +3,6 @@
 import { adminSupabase as supabase } from "@/lib/supabase";
 import { useState, useEffect } from "react";
 
-const DAILY_TARGET = 20;
-
 export default function ExecutiveDashboard() {
   const [session, setSession] = useState<any>(null);
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
@@ -14,6 +12,10 @@ export default function ExecutiveDashboard() {
   const [activeTab, setActiveTab] = useState<"dashboard" | "settings">("dashboard");
   const [logs, setLogs] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  
+  // Dynamic Settings
+  const [dailyTarget, setDailyTarget] = useState(20);
+  const [newTargetInput, setNewTargetInput] = useState("");
   
   const [selectedHandler, setSelectedHandler] = useState<string>("All");
   const [dateFilter, setDateFilter] = useState<"All" | "Today" | "Week" | "Month">("All");
@@ -33,18 +35,27 @@ export default function ExecutiveDashboard() {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       setIsCheckingAuth(false);
-      if (session?.user?.email === "admin@executive-command.com") fetchLogs();
+      if (session?.user?.email === "admin@executive-command.com") {
+        fetchLogs();
+        fetchSettings();
+      }
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
-      if (session?.user?.email === "admin@executive-command.com") fetchLogs();
+      if (session?.user?.email === "admin@executive-command.com") {
+        fetchLogs();
+        fetchSettings();
+      }
     });
 
     const channel = supabase
       .channel('schema-db-changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'campaign_links' }, () => {
         if (session?.user?.email === "admin@executive-command.com") fetchLogs();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'system_settings' }, () => {
+        if (session?.user?.email === "admin@executive-command.com") fetchSettings();
       })
       .subscribe();
 
@@ -58,6 +69,24 @@ export default function ExecutiveDashboard() {
     const { data } = await supabase.from("campaign_links").select("*").order("created_at", { ascending: false });
     if (data) setLogs(data);
     setIsLoading(false);
+  };
+
+  const fetchSettings = async () => {
+    const { data } = await supabase.from("system_settings").select("daily_target").eq("id", 1).single();
+    if (data) setDailyTarget(data.daily_target);
+  };
+
+  const handleUpdateTarget = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const num = parseInt(newTargetInput);
+    if (isNaN(num) || num < 1) return alert("Please enter a valid number greater than 0.");
+    
+    const { error } = await supabase.from("system_settings").update({ daily_target: num }).eq("id", 1);
+    if (error) alert(`Error: ${error.message}`);
+    else {
+      setDailyTarget(num);
+      setNewTargetInput("");
+    }
   };
 
   const handleAdminLogin = async (e: React.FormEvent) => {
@@ -178,7 +207,7 @@ export default function ExecutiveDashboard() {
         }
       } catch {}
     });
-    const progressPct = Math.min(100, Math.round((handlerValidCount / DAILY_TARGET) * 100));
+    const progressPct = Math.min(100, Math.round((handlerValidCount / dailyTarget) * 100));
     return { handler, handlerValidCount, progressPct };
   });
 
@@ -293,15 +322,15 @@ export default function ExecutiveDashboard() {
                 <span className="text-xs font-medium uppercase tracking-wider text-red-500">Invalid</span>
               </div>
               <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-4 flex flex-col justify-center space-y-3 overflow-y-auto max-h-32">
-                <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-1">Today's Fleet Velocity (Target: {DAILY_TARGET})</span>
+                <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-1">Today's Fleet Velocity (Target: {dailyTarget})</span>
                 {handlerStats.map(stat => (
                   <div key={stat.handler} className="flex flex-col gap-1 w-full">
                     <div className="flex justify-between text-xs">
                       <span className="text-zinc-300 truncate w-16">{stat.handler}</span>
-                      <span className={stat.handlerValidCount >= DAILY_TARGET ? "text-emerald-400 font-bold" : "text-zinc-500"}>{stat.handlerValidCount}/{DAILY_TARGET}</span>
+                      <span className={stat.handlerValidCount >= dailyTarget ? "text-emerald-400 font-bold" : "text-zinc-500"}>{stat.handlerValidCount}/{dailyTarget}</span>
                     </div>
                     <div className="w-full h-1.5 bg-zinc-900 rounded-full overflow-hidden">
-                      <div className={`h-full ${stat.handlerValidCount >= DAILY_TARGET ? "bg-emerald-500" : "bg-blue-500"}`} style={{ width: `${stat.progressPct}%` }}></div>
+                      <div className={`h-full ${stat.handlerValidCount >= dailyTarget ? "bg-emerald-500" : "bg-blue-500"}`} style={{ width: `${stat.progressPct}%` }}></div>
                     </div>
                   </div>
                 ))}
@@ -368,15 +397,31 @@ export default function ExecutiveDashboard() {
 
         {activeTab === "settings" && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 animate-in fade-in slide-in-from-bottom-4">
+            
+            {/* NEW TARGET CONFIGURATOR */}
+            <div className="border border-blue-500/20 bg-blue-500/5 rounded-xl p-6 space-y-4 shadow-xl md:col-span-2">
+              <h2 className="text-lg font-bold text-blue-400 border-b border-blue-500/20 pb-2">Global KPI Target</h2>
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <p className="text-sm text-blue-400/80">Current requirement is <span className="font-bold text-white">{dailyTarget}</span> valid posts per day.</p>
+                <form onSubmit={handleUpdateTarget} className="flex gap-3">
+                  <input type="number" required min="1" value={newTargetInput} onChange={e => setNewTargetInput(e.target.value)} placeholder="New Target" className="w-32 rounded-lg bg-black border border-blue-500/30 px-4 py-2 text-sm text-blue-300 outline-none" />
+                  <button type="submit" className="bg-blue-500 text-white px-6 py-2 rounded-lg text-sm font-bold hover:bg-blue-600">Update Fleet Target</button>
+                </form>
+              </div>
+            </div>
+
             <div className="border border-zinc-800 bg-zinc-950 rounded-xl p-6 space-y-4 shadow-xl">
               <h2 className="text-lg font-bold text-white border-b border-zinc-800 pb-2">Command Security</h2>
+              <p className="text-sm text-zinc-400 mb-4">Update the master passcode for this dashboard.</p>
               <form onSubmit={handleUpdateMasterPasscode} className="space-y-3">
                 <input type="password" required value={newMasterPasscode} onChange={e => setNewMasterPasscode(e.target.value)} placeholder="New Master Passcode" className="w-full rounded-lg bg-zinc-900 border border-zinc-800 px-4 py-2 text-sm text-white outline-none focus:border-blue-500" />
                 <button type="submit" className="w-full bg-white text-black py-2 rounded-lg text-sm font-bold hover:bg-zinc-200">Update Passcode</button>
               </form>
             </div>
+            
             <div className="border border-zinc-800 bg-zinc-950 rounded-xl p-6 space-y-4 shadow-xl">
               <h2 className="text-lg font-bold text-white border-b border-zinc-800 pb-2">Reset Handler Passcode</h2>
+              <p className="text-sm text-zinc-400 mb-4">Override and reset a forgotten manager passcode.</p>
               <form onSubmit={handleResetHandlerPasscode} className="space-y-3">
                 <select value={resetTarget} onChange={e => setResetTarget(e.target.value)} required className="w-full rounded-lg bg-zinc-900 border border-zinc-800 px-4 py-2 text-sm text-white outline-none focus:border-blue-500">
                   <option value="">Select Handler...</option>
@@ -384,6 +429,18 @@ export default function ExecutiveDashboard() {
                 </select>
                 <input type="password" required value={newHandlerPasscode} onChange={e => setNewHandlerPasscode(e.target.value)} placeholder="New Handler Passcode" className="w-full rounded-lg bg-zinc-900 border border-zinc-800 px-4 py-2 text-sm text-white outline-none focus:border-blue-500" />
                 <button type="submit" className="w-full bg-zinc-800 text-white py-2 rounded-lg text-sm font-bold hover:bg-zinc-700">Reset Account Access</button>
+              </form>
+            </div>
+
+            <div className="border border-red-500/20 bg-red-500/5 rounded-xl p-6 space-y-4 shadow-xl md:col-span-2 mt-4">
+              <h2 className="text-lg font-bold text-red-400 border-b border-red-500/20 pb-2">Danger Zone: Terminate Handler</h2>
+              <p className="text-sm text-red-400/80 mb-4">This permanently deletes the manager's login account and wipes all KPI data they ever submitted. This cannot be undone.</p>
+              <form onSubmit={handleTerminateHandler} className="flex flex-col sm:flex-row gap-4">
+                <select value={terminateTarget} onChange={e => setTerminateTarget(e.target.value)} required className="flex-1 rounded-lg bg-black border border-red-500/30 px-4 py-2 text-sm text-red-300 outline-none">
+                  <option value="">Select Handler to Terminate...</option>
+                  {uniqueHandlers.map(h => <option key={h} value={h}>{h}</option>)}
+                </select>
+                <button type="submit" className="bg-red-500 text-white px-6 py-2 rounded-lg text-sm font-bold hover:bg-red-600">Terminate & Purge</button>
               </form>
             </div>
           </div>
