@@ -54,7 +54,7 @@ export default async function ExecutiveDashboard() {
                     let isValid = false;
                     try {
                       const parsed = new URL(log.url);
-                      const validHosts = ["facebook.com", "www.facebook.com", "m.facebook.com", "fb.com", "fb.watch"];
+                      const validHosts = ["facebook.com", "www.facebook.com", "m.facebook.com", "web.facebook.com", "fb.com", "fb.watch"];
                       isValid = validHosts.includes(parsed.hostname);
                     } catch (e) {
                       isValid = false;

@@ -18,7 +18,7 @@ export async function POST(request: Request) {
     }
 
     // Check if it's Facebook to strip tracking parameters, but DO NOT reject if it isn't
-    const validHosts = ["facebook.com", "www.facebook.com", "m.facebook.com", "fb.com", "fb.watch"];
+    const validHosts = ["facebook.com", "www.facebook.com", "m.facebook.com", "web.facebook.com", "fb.com", "fb.watch"];
     if (validHosts.includes(parsedUrl.hostname)) {
       parsedUrl.searchParams.delete("mibextid");
       parsedUrl.searchParams.delete("ref");
@@ -27,7 +27,7 @@ export async function POST(request: Request) {
     
     const cleanUrl = parsedUrl.toString();
 
-    // Prevent duplicates so managers can't spam the exact same bad link
+    // Prevent duplicates so managers can't spam the exact same link
     const { data: existing } = await supabase
       .from("campaign_links")
       .select("id")
