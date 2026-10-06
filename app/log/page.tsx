@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { supabase } from "@/lib/supabase";
+import { managerSupabase as supabase } from "@/lib/supabase";
 
 export default function LogPage() {
   const [session, setSession] = useState<any>(null);
@@ -18,25 +18,19 @@ export default function LogPage() {
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
-      if (session?.user?.email && session.user.email !== "admin@executive-command.com") {
-        fetchMyLogs(session.user.email.split("@")[0]);
-      }
+      if (session?.user?.email) fetchMyLogs(session.user.email.split("@")[0]);
       setIsCheckingAuth(false);
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
-      if (session?.user?.email && session.user.email !== "admin@executive-command.com") {
-        fetchMyLogs(session.user.email.split("@")[0]);
-      }
+      if (session?.user?.email) fetchMyLogs(session.user.email.split("@")[0]);
     });
 
     const channel = supabase
       .channel('my-logs')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'campaign_links' }, () => {
-        if (session?.user?.email && session.user.email !== "admin@executive-command.com") {
-          fetchMyLogs(session.user.email.split("@")[0]);
-        }
+        if (session?.user?.email) fetchMyLogs(session.user.email.split("@")[0]);
       })
       .subscribe();
 
@@ -93,22 +87,8 @@ export default function LogPage() {
     <div className="flex min-h-screen flex-col items-center justify-center bg-black p-4 text-zinc-100">
       <div className="w-full max-w-md space-y-6">
         
-        {/* Main Card */}
         <div className="rounded-2xl border border-zinc-800 bg-zinc-950 p-8 shadow-2xl">
-          {session?.user?.email === "admin@executive-command.com" ? (
-            <div className="space-y-6 text-center">
-              <h1 className="text-2xl font-bold text-white">Admin Session Active</h1>
-              <div className="text-blue-400 bg-blue-500/10 border border-blue-500/20 p-3 rounded-lg text-sm">
-                You are currently authenticated at the Command level.
-              </div>
-              <button onClick={() => window.location.href = '/'} className="w-full bg-white text-black p-3 rounded-lg font-bold hover:bg-zinc-200 transition-colors">
-                Return to Command Center
-              </button>
-              <button onClick={() => supabase.auth.signOut()} className="w-full text-xs text-zinc-500 pt-4 border-t border-zinc-800 hover:text-white transition-colors">
-                Sign Out & Disconnect
-              </button>
-            </div>
-          ) : !session ? (
+          {!session ? (
             <form onSubmit={handleAuth} className="space-y-6">
               <h1 className="text-2xl font-bold text-center">{isLoginMode ? "Fleet Authentication" : "Register Handler"}</h1>
               <input type="text" placeholder="Handler ID" required value={username} onChange={(e) => setUsername(e.target.value)} className="w-full rounded-lg bg-zinc-900 border border-zinc-800 p-3 text-sm focus:border-blue-500 outline-none" />
@@ -141,8 +121,7 @@ export default function LogPage() {
           )}
         </div>
 
-        {/* Manager Personal History Table */}
-        {session && session.user.email !== "admin@executive-command.com" && myLogs.length > 0 && (
+        {session && myLogs.length > 0 && (
           <div className="rounded-2xl border border-zinc-800 bg-zinc-950 p-6 shadow-2xl animate-in fade-in slide-in-from-bottom-4">
             <h2 className="text-sm font-bold text-zinc-400 uppercase tracking-wider mb-4">Your Recent Submissions</h2>
             <div className="space-y-3">

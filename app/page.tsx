@@ -1,6 +1,6 @@
 "use client";
 
-import { supabase } from "@/lib/supabase";
+import { adminSupabase as supabase } from "@/lib/supabase";
 import { useState, useEffect } from "react";
 
 export default function ExecutiveDashboard() {
@@ -155,25 +155,16 @@ export default function ExecutiveDashboard() {
             <p className="text-sm text-zinc-400">Restricted Admin Access</p>
           </div>
           
-          {session && session.user.email !== "admin@executive-command.com" ? (
-             <div className="text-center space-y-4">
-               <div className="text-amber-400 bg-amber-500/10 border border-amber-500/20 p-3 rounded-lg text-sm">
-                 Unauthorized Access. This portal is for Command level only.
-               </div>
-               <button onClick={() => supabase.auth.signOut()} className="text-sm text-zinc-400 hover:text-white underline">Sign out of {session.user.email.split("@")[0]}</button>
-             </div>
-          ) : (
-            <form onSubmit={handleAdminLogin} className="space-y-6">
-              <div>
-                <input type="password" required value={adminPasscode} onChange={(e) => setAdminPasscode(e.target.value)} placeholder="Master Passcode" className="w-full rounded-lg border border-zinc-800 bg-zinc-900 px-4 py-3 text-sm text-white focus:border-blue-500 outline-none text-center tracking-widest" />
-              </div>
-              {authStatus && <div className={`text-sm text-center ${authStatus.includes("Access Denied") || authStatus.includes("must be") ? "text-red-400" : "text-emerald-400"}`}>{authStatus}</div>}
-              
-              <div className="space-y-3">
-                <button type="submit" className="w-full rounded-lg bg-white px-4 py-3 text-sm font-bold text-black hover:bg-zinc-200 transition-all">Authenticate</button>
-              </div>
-            </form>
-          )}
+          <form onSubmit={handleAdminLogin} className="space-y-6">
+            <div>
+              <input type="password" required value={adminPasscode} onChange={(e) => setAdminPasscode(e.target.value)} placeholder="Master Passcode" className="w-full rounded-lg border border-zinc-800 bg-zinc-900 px-4 py-3 text-sm text-white focus:border-blue-500 outline-none text-center tracking-widest" />
+            </div>
+            {authStatus && <div className={`text-sm text-center ${authStatus.includes("Access Denied") || authStatus.includes("must be") ? "text-red-400" : "text-emerald-400"}`}>{authStatus}</div>}
+            
+            <div className="space-y-3">
+              <button type="submit" className="w-full rounded-lg bg-white px-4 py-3 text-sm font-bold text-black hover:bg-zinc-200 transition-all">Authenticate</button>
+            </div>
+          </form>
         </div>
       </div>
     );
