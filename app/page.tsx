@@ -69,7 +69,7 @@ export default function ExecutiveDashboard() {
     const { error } = await supabase.from("system_settings").update({ daily_target: num, motd: message }).eq("id", 1);
     
     if (error) alert(`Error: ${error.message}`);
-    else { setDailyTarget(num); setMotd(message); setNewTargetInput(""); setNewMotdInput(""); alert("Platform Settings Updated."); }
+    else { setDailyTarget(num); setMotd(message); setNewTargetInput(""); setNewMotdInput(""); alert("Platform Variables Synced."); }
   };
 
   const handleAdminLogin = async (e: React.FormEvent) => {
@@ -95,6 +95,33 @@ export default function ExecutiveDashboard() {
   const handleDeleteLink = async (id: string) => {
     if (!confirm("Delete this KPI?")) return;
     await supabase.from("campaign_links").delete().eq("id", id);
+  };
+
+  const handleUpdateMasterPasscode = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (newMasterPasscode.length < 6) return alert("Must be 6+ characters.");
+    const { error } = await supabase.auth.updateUser({ password: newMasterPasscode });
+    if (error) alert(`Error: ${error.message}`);
+    else { alert("Master Passcode Updated Successfully."); setNewMasterPasscode(""); }
+  };
+
+  const handleResetHandlerPasscode = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!resetTarget || newHandlerPasscode.length < 6) return alert("Select a handler and enter a 6+ char passcode.");
+    const res = await fetch("/api/managers", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ handler_name: resetTarget, new_password: newHandlerPasscode }) });
+    if (res.ok) { alert(`${resetTarget}'s passcode has been reset.`); setResetTarget(""); setNewHandlerPasscode(""); } 
+    else alert("Failed to reset passcode.");
+  };
+
+  const handleTerminateHandler = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!terminateTarget) return;
+    if (!confirm(`CRITICAL WARNING: This will permanently delete ${terminateTarget}'s login account AND wipe all their submitted KPIs. Proceed?`)) return;
+    await fetch("/api/managers", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ handler_name: terminateTarget }) });
+    await supabase.from("campaign_links").delete().eq("handler_name", terminateTarget);
+    alert(`Handler ${terminateTarget} has been terminated and purged.`);
+    setTerminateTarget("");
+    if (selectedHandler === terminateTarget) setSelectedHandler("All");
   };
 
   const checkURL = (rawUrl: string) => {
@@ -177,7 +204,6 @@ export default function ExecutiveDashboard() {
         {activeTab === "dashboard" && (
           <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4">
             
-            {/* EXECUTIVE TREND GRAPH */}
             <div className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-6 shadow-2xl">
               <h2 className="text-sm font-bold text-zinc-400 uppercase tracking-wider mb-6">7-Day KPI Velocity (Valid Network Submissions)</h2>
               <div className="flex items-end justify-between h-40 gap-2">
@@ -217,7 +243,6 @@ export default function ExecutiveDashboard() {
                 <span className="text-3xl font-bold text-red-400">{invalidCount}</span><span className="text-xs uppercase text-red-500">Invalid</span>
               </div>
               
-              {/* ACCURACY MATRIX */}
               <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-4 flex flex-col justify-center space-y-3 overflow-y-auto max-h-32">
                 <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-1">Fleet Accuracy Matrix</span>
                 {handlerStats.map(stat => (
@@ -261,7 +286,7 @@ export default function ExecutiveDashboard() {
 
         {activeTab === "settings" && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 animate-in fade-in slide-in-from-bottom-4">
-            {/* BROADCAST & TARGET SETTINGS */}
+            
             <div className="border border-blue-500/20 bg-blue-500/5 rounded-xl p-6 space-y-4 shadow-xl md:col-span-2">
               <h2 className="text-lg font-bold text-blue-400 border-b border-blue-500/20 pb-2">Global Platform Variables</h2>
               <form onSubmit={handleUpdateSettings} className="space-y-4">
@@ -276,7 +301,41 @@ export default function ExecutiveDashboard() {
                 <button type="submit" className="bg-blue-500 text-white px-6 py-2 rounded-lg text-sm font-bold hover:bg-blue-600">Sync Platform Variables</button>
               </form>
             </div>
-            {/* Security Blocks Below... */}
+
+            <div className="border border-zinc-800 bg-zinc-950 rounded-xl p-6 space-y-4 shadow-xl">
+              <h2 className="text-lg font-bold text-white border-b border-zinc-800 pb-2">Command Security</h2>
+              <p className="text-sm text-zinc-400 mb-4">Update the master passcode for this dashboard.</p>
+              <form onSubmit={handleUpdateMasterPasscode} className="space-y-3">
+                <input type="password" required value={newMasterPasscode} onChange={e => setNewMasterPasscode(e.target.value)} placeholder="New Master Passcode" className="w-full rounded-lg bg-zinc-900 border border-zinc-800 px-4 py-2 text-sm text-white outline-none focus:border-blue-500" />
+                <button type="submit" className="w-full bg-white text-black py-2 rounded-lg text-sm font-bold hover:bg-zinc-200">Update Passcode</button>
+              </form>
+            </div>
+            
+            <div className="border border-zinc-800 bg-zinc-950 rounded-xl p-6 space-y-4 shadow-xl">
+              <h2 className="text-lg font-bold text-white border-b border-zinc-800 pb-2">Reset Handler Passcode</h2>
+              <p className="text-sm text-zinc-400 mb-4">Override and reset a forgotten manager passcode.</p>
+              <form onSubmit={handleResetHandlerPasscode} className="space-y-3">
+                <select value={resetTarget} onChange={e => setResetTarget(e.target.value)} required className="w-full rounded-lg bg-zinc-900 border border-zinc-800 px-4 py-2 text-sm text-white outline-none focus:border-blue-500">
+                  <option value="">Select Handler...</option>
+                  {uniqueHandlers.map(h => <option key={h} value={h}>{h}</option>)}
+                </select>
+                <input type="password" required value={newHandlerPasscode} onChange={e => setNewHandlerPasscode(e.target.value)} placeholder="New Handler Passcode" className="w-full rounded-lg bg-zinc-900 border border-zinc-800 px-4 py-2 text-sm text-white outline-none focus:border-blue-500" />
+                <button type="submit" className="w-full bg-zinc-800 text-white py-2 rounded-lg text-sm font-bold hover:bg-zinc-700">Reset Account Access</button>
+              </form>
+            </div>
+
+            <div className="border border-red-500/20 bg-red-500/5 rounded-xl p-6 space-y-4 shadow-xl md:col-span-2 mt-4">
+              <h2 className="text-lg font-bold text-red-400 border-b border-red-500/20 pb-2">Danger Zone: Terminate Handler</h2>
+              <p className="text-sm text-red-400/80 mb-4">This permanently deletes the manager's login account and wipes all KPI data they ever submitted. This cannot be undone.</p>
+              <form onSubmit={handleTerminateHandler} className="flex flex-col sm:flex-row gap-4">
+                <select value={terminateTarget} onChange={e => setTerminateTarget(e.target.value)} required className="flex-1 rounded-lg bg-black border border-red-500/30 px-4 py-2 text-sm text-red-300 outline-none">
+                  <option value="">Select Handler to Terminate...</option>
+                  {uniqueHandlers.map(h => <option key={h} value={h}>{h}</option>)}
+                </select>
+                <button type="submit" className="bg-red-500 text-white px-6 py-2 rounded-lg text-sm font-bold hover:bg-red-600">Terminate & Purge</button>
+              </form>
+            </div>
+
           </div>
         )}
       </div>
