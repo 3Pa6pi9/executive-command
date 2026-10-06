@@ -4,26 +4,22 @@ import { supabase } from "@/lib/supabase";
 import { useState, useEffect } from "react";
 
 export default function ExecutiveDashboard() {
-  // Auth State
   const [session, setSession] = useState<any>(null);
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
   const [adminPasscode, setAdminPasscode] = useState("");
   const [authStatus, setAuthStatus] = useState("");
 
-  // App State
   const [activeTab, setActiveTab] = useState<"dashboard" | "settings">("dashboard");
   const [logs, setLogs] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedHandler, setSelectedHandler] = useState<string>("All");
 
-  // Admin CRUD State
   const [isAddingManager, setIsAddingManager] = useState(false);
   const [newManagerId, setNewManagerId] = useState("");
   const [newManagerPassword, setNewManagerPassword] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editUrl, setEditUrl] = useState("");
 
-  // Settings State
   const [newMasterPasscode, setNewMasterPasscode] = useState("");
   const [resetTarget, setResetTarget] = useState("");
   const [newHandlerPasscode, setNewHandlerPasscode] = useState("");
@@ -60,7 +56,6 @@ export default function ExecutiveDashboard() {
     setIsLoading(false);
   };
 
-  // --- AUTHENTICATION ---
   const handleAdminLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setAuthStatus("Authenticating...");
@@ -69,15 +64,6 @@ export default function ExecutiveDashboard() {
     else setAuthStatus("");
   };
 
-  const handleAdminInitialize = async () => {
-    if (adminPasscode.length < 6) return setAuthStatus("Passcode must be at least 6 characters.");
-    setAuthStatus("Provisioning Master Account...");
-    const { error } = await supabase.auth.signUp({ email: "admin@executive-command.com", password: adminPasscode });
-    if (error) setAuthStatus(error.message);
-    else setAuthStatus("Master Account Initialized. Logging in...");
-  };
-
-  // --- DASHBOARD ACTIONS ---
   const handleAddManager = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
@@ -104,7 +90,6 @@ export default function ExecutiveDashboard() {
     await supabase.from("campaign_links").delete().eq("id", id);
   };
 
-  // --- SETTINGS ACTIONS ---
   const handleUpdateMasterPasscode = async (e: React.FormEvent) => {
     e.preventDefault();
     if (newMasterPasscode.length < 6) return alert("Must be 6+ characters.");
@@ -130,13 +115,11 @@ export default function ExecutiveDashboard() {
     if (!terminateTarget) return;
     if (!confirm(`CRITICAL WARNING: This will permanently delete ${terminateTarget}'s login account AND wipe all their submitted KPIs. Proceed?`)) return;
     
-    // 1. Delete the Auth Account
     await fetch("/api/managers", {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ handler_name: terminateTarget }),
     });
-    // 2. Wipe their database logs
     await supabase.from("campaign_links").delete().eq("handler_name", terminateTarget);
     
     alert(`Handler ${terminateTarget} has been terminated and purged.`);
@@ -144,11 +127,9 @@ export default function ExecutiveDashboard() {
     if (selectedHandler === terminateTarget) setSelectedHandler("All");
   };
 
-  // Data Derivation
   const uniqueHandlers = Array.from(new Set(logs.map(l => l.handler_name)));
   const filteredLogs = selectedHandler === "All" ? logs : logs.filter(l => l.handler_name === selectedHandler);
 
-  // Stats Evaluation
   let validCount = 0; let invalidCount = 0;
   filteredLogs.forEach(log => {
     try {
@@ -165,7 +146,6 @@ export default function ExecutiveDashboard() {
 
   if (isCheckingAuth) return <div className="flex min-h-screen items-center justify-center bg-black text-zinc-500">Securing Connection...</div>;
 
-  // GATEWAY UI (Not Admin)
   if (!session || session.user.email !== "admin@executive-command.com") {
     return (
       <div className="flex min-h-screen items-center justify-center bg-black p-4 text-zinc-100 font-sans">
@@ -191,7 +171,6 @@ export default function ExecutiveDashboard() {
               
               <div className="space-y-3">
                 <button type="submit" className="w-full rounded-lg bg-white px-4 py-3 text-sm font-bold text-black hover:bg-zinc-200 transition-all">Authenticate</button>
-                <button type="button" onClick={handleAdminInitialize} className="w-full text-xs text-zinc-500 hover:text-zinc-300 pt-4">First time? Initialize Master Account</button>
               </div>
             </form>
           )}
@@ -200,12 +179,10 @@ export default function ExecutiveDashboard() {
     );
   }
 
-  // MAIN ADMIN UI
   return (
     <div className="flex min-h-screen flex-col bg-black p-6 md:p-12 text-zinc-100 font-sans selection:bg-blue-500/30">
       <div className="mx-auto w-full max-w-6xl space-y-8">
         
-        {/* Navigation Header */}
         <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 border-b border-zinc-800 pb-6">
           <div className="space-y-4">
             <h1 className="text-4xl font-bold tracking-tight text-white flex items-center gap-3">
@@ -222,10 +199,8 @@ export default function ExecutiveDashboard() {
           <button onClick={() => supabase.auth.signOut()} className="text-sm font-medium text-zinc-500 hover:text-white">Sign Out</button>
         </div>
 
-        {/* --- DASHBOARD TAB --- */}
         {activeTab === "dashboard" && (
           <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4">
-            {/* Filter & Controls */}
             <div className="flex flex-wrap items-center justify-between gap-4">
               <div className="flex items-center gap-3">
                 <select value={selectedHandler} onChange={(e) => setSelectedHandler(e.target.value)} className="rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-1.5 text-sm text-white focus:border-blue-500 outline-none">
@@ -238,7 +213,6 @@ export default function ExecutiveDashboard() {
               </button>
             </div>
 
-            {/* Admin Add Form */}
             {isAddingManager && (
               <form onSubmit={handleAddManager} className="flex flex-col sm:flex-row gap-4 p-4 rounded-xl border border-zinc-800 bg-zinc-900/50">
                 <input placeholder="Handler ID" required value={newManagerId} onChange={e => setNewManagerId(e.target.value)} className="bg-zinc-950 border border-zinc-800 rounded-lg px-4 py-2 text-sm text-white flex-1 outline-none" />
@@ -247,7 +221,6 @@ export default function ExecutiveDashboard() {
               </form>
             )}
 
-            {/* Dynamic Manager Summary Panel */}
             {selectedHandler !== "All" && (
               <div className="grid grid-cols-3 gap-4">
                 <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-4 flex flex-col items-center justify-center">
@@ -265,7 +238,6 @@ export default function ExecutiveDashboard() {
               </div>
             )}
 
-            {/* Data Table */}
             <div className="overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950 shadow-2xl">
               <table className="w-full text-left text-sm text-zinc-300">
                 <thead className="bg-zinc-900/50 text-xs uppercase tracking-wider text-zinc-500 border-b border-zinc-800">
@@ -319,11 +291,9 @@ export default function ExecutiveDashboard() {
           </div>
         )}
 
-        {/* --- SETTINGS TAB --- */}
         {activeTab === "settings" && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 animate-in fade-in slide-in-from-bottom-4">
             
-            {/* Admin Security Settings */}
             <div className="border border-zinc-800 bg-zinc-950 rounded-xl p-6 space-y-4 shadow-xl">
               <h2 className="text-lg font-bold text-white border-b border-zinc-800 pb-2">Command Security</h2>
               <p className="text-sm text-zinc-400 mb-4">Update the master passcode for this dashboard.</p>
@@ -333,7 +303,6 @@ export default function ExecutiveDashboard() {
               </form>
             </div>
 
-            {/* Manager Passcode Reset */}
             <div className="border border-zinc-800 bg-zinc-950 rounded-xl p-6 space-y-4 shadow-xl">
               <h2 className="text-lg font-bold text-white border-b border-zinc-800 pb-2">Reset Handler Passcode</h2>
               <p className="text-sm text-zinc-400 mb-4">Override and reset a forgotten manager passcode.</p>
@@ -347,7 +316,6 @@ export default function ExecutiveDashboard() {
               </form>
             </div>
 
-            {/* Danger Zone: Terminate Manager */}
             <div className="border border-red-500/20 bg-red-500/5 rounded-xl p-6 space-y-4 shadow-xl md:col-span-2 mt-4">
               <h2 className="text-lg font-bold text-red-400 border-b border-red-500/20 pb-2">Danger Zone: Terminate Handler</h2>
               <p className="text-sm text-red-400/80 mb-4">This permanently deletes the manager's login account and wipes all KPI data they ever submitted. This cannot be undone.</p>
