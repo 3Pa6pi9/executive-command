@@ -1,62 +1,89 @@
 "use client";
 
 import { useState } from "react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { supabase } from "@/lib/supabase";
 
-export default function HandlerLogPage() {
+export default function LogPage() {
+  const [name, setName] = useState("");
   const [url, setUrl] = useState("");
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [status, setStatus] = useState<{ type: "idle" | "loading" | "error" | "success"; msg: string }>({ type: "idle", msg: "" });
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsSubmitting(true);
-    
-    const { error } = await supabase
-      .from('campaign_links')
-      .insert([{ url: url, handler_name: 'Mobile User' }]);
+    setStatus({ type: "loading", msg: "Submitting link..." });
 
-    if (error) {
-      alert("Error logging link. Please try again.");
-      console.error(error);
-    } else {
-      setUrl("");
-      alert("Link logged successfully!");
+    try {
+      const res = await fetch("/api/log", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url, handler_name: name }),
+      });
+      
+      const data = await res.json();
+
+      if (res.ok) {
+        setStatus({ type: "success", msg: "KPI Successfully Logged." });
+        setUrl(""); // Reset URL field for the next entry
+      } else {
+        setStatus({ type: "error", msg: data.error || "Submission failed." });
+      }
+    } catch (err) {
+      setStatus({ type: "error", msg: "Network error. Please try again." });
     }
-    setIsSubmitting(false);
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-black p-4 text-white selection:bg-primary selection:text-primary-foreground">
-      <Card className="w-full max-w-md bg-zinc-950 border-zinc-800 shadow-2xl">
-        <CardHeader className="space-y-1 pb-6">
-          <CardTitle className="text-2xl font-bold tracking-tight text-white">Daily Operations</CardTitle>
-          <CardDescription className="text-zinc-400">
-            Paste your campaign URL below to log your daily quota.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-6">
-            <Input 
-              type="url" 
-              placeholder="https://..." 
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              required
-              className="h-14 bg-zinc-900 border-zinc-800 text-white placeholder:text-zinc-500 text-lg focus-visible:ring-zinc-700"
-            />
-            <Button 
-              type="submit" 
-              disabled={isSubmitting}
-              className="w-full h-14 text-lg font-semibold bg-white text-black hover:bg-zinc-200 transition-colors"
-            >
-              {isSubmitting ? "Logging..." : "Submit Link"}
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
+    <div className="flex min-h-screen items-center justify-center bg-black p-4 text-zinc-100">
+      <div className="w-full max-w-md space-y-8 rounded-2xl border border-zinc-800 bg-zinc-950 p-8 shadow-2xl">
+        <div className="space-y-2 text-center">
+          <h1 className="text-2xl font-bold tracking-tight text-white">KPI Submission</h1>
+          <p className="text-sm text-zinc-400">Enter your identifier and the daily Facebook post URL.</p>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-6">
+          <div className="space-y-4">
+            <div>
+              <label className="block text-xs font-medium text-zinc-400 uppercase tracking-wider mb-2">Handler Name</label>
+              <input
+                type="text"
+                required
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                className="w-full rounded-lg border border-zinc-800 bg-zinc-900 px-4 py-3 text-sm text-white focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors"
+                placeholder="e.g. John Doe"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-zinc-400 uppercase tracking-wider mb-2">Post URL</label>
+              <input
+                type="url"
+                required
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+                className="w-full rounded-lg border border-zinc-800 bg-zinc-900 px-4 py-3 text-sm text-white focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors"
+                placeholder="https://facebook.com/..."
+              />
+            </div>
+          </div>
+
+          {status.type !== "idle" && (
+            <div className={`rounded-lg p-3 text-sm font-medium ${
+              status.type === "error" ? "bg-red-500/10 text-red-400 border border-red-500/20" : 
+              status.type === "success" ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" : 
+              "bg-blue-500/10 text-blue-400 border border-blue-500/20"
+            }`}>
+              {status.msg}
+            </div>
+          )}
+
+          <button
+            type="submit"
+            disabled={status.type === "loading"}
+            className="w-full rounded-lg bg-white px-4 py-3 text-sm font-bold text-black hover:bg-zinc-200 focus:outline-none focus:ring-2 focus:ring-white focus:ring-offset-2 focus:ring-offset-black disabled:opacity-50 transition-all"
+          >
+            {status.type === "loading" ? "Processing..." : "Submit KPI"}
+          </button>
+        </form>
+      </div>
     </div>
   );
 }
