@@ -130,7 +130,7 @@ export default function ExecutiveDashboard() {
     if (selectedHandler === terminateTarget) setSelectedHandler("All");
   };
 
-  // --- FILTERING LOGIC ---
+  // --- FILTERING & VALIDATION LOGIC ---
   const uniqueHandlers = Array.from(new Set(logs.map(l => l.handler_name)));
   
   let timeFilteredLogs = logs;
@@ -149,13 +149,14 @@ export default function ExecutiveDashboard() {
   let validCount = 0; let invalidCount = 0;
   filteredLogs.forEach(log => {
     try {
-      const p = new URL(log.url);
+      const p = new URL(log.url.trim());
       const validHosts = ["facebook.com", "www.facebook.com", "m.facebook.com", "web.facebook.com", "fb.com", "fb.watch"];
       if (validHosts.includes(p.hostname)) {
         const path = p.pathname.toLowerCase();
-        const isPost = path.includes("/posts/") || path.includes("/permalink.php") || path.includes("/videos/") || path.includes("/photo") || path.includes("/watch") || path.includes("/story.php") || p.hostname === "fb.watch";
-        const isCreation = path.includes("/create") || path === "/";
-        (isPost && !isCreation) ? validCount++ : invalidCount++;
+        const validSegments = ["/posts/", "/permalink.php", "/videos/", "/photo", "/watch", "/story.php", "/reel/", "/reels/"];
+        const isContent = p.hostname === "fb.watch" || validSegments.some(seg => path.includes(seg));
+        if (isContent && !path.includes("/create")) validCount++;
+        else invalidCount++;
       } else invalidCount++;
     } catch { invalidCount++; }
   });
@@ -166,12 +167,14 @@ export default function ExecutiveDashboard() {
     const rows = filteredLogs.map(log => {
       let status = "Invalid";
       try {
-        const p = new URL(log.url);
-        if (["facebook.com", "www.facebook.com", "m.facebook.com", "web.facebook.com", "fb.com", "fb.watch"].includes(p.hostname)) {
+        const p = new URL(log.url.trim());
+        const validHosts = ["facebook.com", "www.facebook.com", "m.facebook.com", "web.facebook.com", "fb.com", "fb.watch"];
+        if (validHosts.includes(p.hostname)) {
           const path = p.pathname.toLowerCase();
-          if ((path.includes("/posts/") || path.includes("/permalink.php") || path.includes("/videos/") || p.hostname === "fb.watch") && !path.includes("/create")) {
-            status = "Valid";
-          } else { status = "Bad Link"; }
+          const validSegments = ["/posts/", "/permalink.php", "/videos/", "/photo", "/watch", "/story.php", "/reel/", "/reels/"];
+          const isContent = p.hostname === "fb.watch" || validSegments.some(seg => path.includes(seg));
+          if (isContent && !path.includes("/create")) status = "Valid";
+          else status = "Bad Link";
         }
       } catch {}
       return `"${new Date(log.created_at).toLocaleString()}","${log.handler_name}","${log.url}","${status}"`;
@@ -296,12 +299,17 @@ export default function ExecutiveDashboard() {
                   {filteredLogs.map((log) => {
                     let statusLabel = "Invalid"; let statusColor = "bg-red-500/10 text-red-400";
                     try {
-                      const p = new URL(editingId === log.id ? editUrl : log.url);
-                      if (["facebook.com", "www.facebook.com", "m.facebook.com", "web.facebook.com", "fb.com", "fb.watch"].includes(p.hostname)) {
+                      const p = new URL((editingId === log.id ? editUrl : log.url).trim());
+                      const validHosts = ["facebook.com", "www.facebook.com", "m.facebook.com", "web.facebook.com", "fb.com", "fb.watch"];
+                      if (validHosts.includes(p.hostname)) {
                         const path = p.pathname.toLowerCase();
-                        if ((path.includes("/posts/") || path.includes("/permalink.php") || path.includes("/videos/") || p.hostname === "fb.watch") && !path.includes("/create")) {
+                        const validSegments = ["/posts/", "/permalink.php", "/videos/", "/photo", "/watch", "/story.php", "/reel/", "/reels/"];
+                        const isContent = p.hostname === "fb.watch" || validSegments.some(seg => path.includes(seg));
+                        if (isContent && !path.includes("/create")) {
                           statusLabel = "Valid"; statusColor = "bg-emerald-500/10 text-emerald-400";
-                        } else { statusLabel = "Bad Link"; statusColor = "bg-amber-500/10 text-amber-400"; }
+                        } else {
+                          statusLabel = "Bad Link"; statusColor = "bg-amber-500/10 text-amber-400";
+                        }
                       }
                     } catch {}
 

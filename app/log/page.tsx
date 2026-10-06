@@ -81,16 +81,19 @@ export default function LogPage() {
     }
   };
 
-  // Gamification: Count today's valid logs
+  // Gamification & Validation
   let todaysValidCount = 0;
   const today = new Date().toDateString();
   myLogs.forEach(log => {
     if (new Date(log.created_at).toDateString() === today) {
        try {
-        const p = new URL(log.url);
-        if (["facebook.com", "www.facebook.com", "m.facebook.com", "web.facebook.com", "fb.com", "fb.watch"].includes(p.hostname)) {
+        const p = new URL(log.url.trim());
+        const validHosts = ["facebook.com", "www.facebook.com", "m.facebook.com", "web.facebook.com", "fb.com", "fb.watch"];
+        if (validHosts.includes(p.hostname)) {
           const path = p.pathname.toLowerCase();
-          if ((path.includes("/posts/") || path.includes("/permalink.php") || path.includes("/videos/") || p.hostname === "fb.watch") && !path.includes("/create")) {
+          const validSegments = ["/posts/", "/permalink.php", "/videos/", "/photo", "/watch", "/story.php", "/reel/", "/reels/"];
+          const isContent = p.hostname === "fb.watch" || validSegments.some(seg => path.includes(seg));
+          if (isContent && !path.includes("/create")) {
             todaysValidCount++;
           }
         }
@@ -157,12 +160,18 @@ export default function LogPage() {
                 let statusLabel = "Invalid";
                 let statusColor = "bg-red-500/10 text-red-400";
                 try {
-                  const p = new URL(log.url);
-                  const path = p.pathname.toLowerCase();
-                  if (["facebook.com", "www.facebook.com", "m.facebook.com", "web.facebook.com", "fb.com", "fb.watch"].includes(p.hostname)) {
-                    if ((path.includes("/posts/") || path.includes("/permalink.php") || path.includes("/videos/") || p.hostname === "fb.watch") && !path.includes("/create")) {
+                  const p = new URL(log.url.trim());
+                  const validHosts = ["facebook.com", "www.facebook.com", "m.facebook.com", "web.facebook.com", "fb.com", "fb.watch"];
+                  if (validHosts.includes(p.hostname)) {
+                    const path = p.pathname.toLowerCase();
+                    const validSegments = ["/posts/", "/permalink.php", "/videos/", "/photo", "/watch", "/story.php", "/reel/", "/reels/"];
+                    const isContent = p.hostname === "fb.watch" || validSegments.some(seg => path.includes(seg));
+                    if (isContent && !path.includes("/create")) {
                       statusLabel = "Valid";
                       statusColor = "bg-emerald-500/10 text-emerald-400";
+                    } else {
+                      statusLabel = "Bad Link";
+                      statusColor = "bg-amber-500/10 text-amber-400";
                     }
                   }
                 } catch {}
