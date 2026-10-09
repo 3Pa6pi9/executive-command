@@ -184,7 +184,7 @@ export default function ExecutiveDashboard() {
   });
   const maxTrend = Math.max(...trendData.map(d => d.count), 1);
 
-  // MEL GRAPHS CALCULATIONS (Dynamically updates based on dropdowns)
+  // MEL GRAPHS CALCULATIONS
   const totalReach = filteredLogs.reduce((sum, log) => sum + (log.reach || 0), 0);
   const totalViews = filteredLogs.reduce((sum, log) => sum + (log.views || 0), 0);
   const totalFollowers = filteredLogs.reduce((sum, log) => sum + (log.followers || 0), 0);
@@ -265,7 +265,6 @@ export default function ExecutiveDashboard() {
             {/* MEL GRAPHS & ACCURACY MATRIX */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               
-              {/* MEL BAR CHARTS */}
               <div className="lg:col-span-2 bg-zinc-950 border border-zinc-800 rounded-xl p-6 shadow-2xl flex flex-col justify-center">
                 <h2 className="text-xs font-bold text-zinc-400 uppercase tracking-wider mb-6">MEL Performance Analytics</h2>
                 <div className="space-y-5">
@@ -288,7 +287,6 @@ export default function ExecutiveDashboard() {
                 </div>
               </div>
 
-              {/* FLEET ACCURACY MATRIX */}
               <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-6 flex flex-col shadow-2xl">
                 <h2 className="text-xs font-bold text-zinc-400 uppercase tracking-wider mb-4">Fleet Accuracy Matrix (Today)</h2>
                 <div className="flex-1 overflow-y-auto space-y-3">
@@ -325,7 +323,7 @@ export default function ExecutiveDashboard() {
               </div>
             </div>
 
-            {/* LOGS TABLE WITH ANOMALY DETECTION */}
+            {/* LOGS TABLE (REMASTERED METRICS GRID) */}
             <div className="overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950 shadow-2xl">
               <div className="p-4 border-b border-zinc-800 bg-zinc-900/30 flex justify-between items-center">
                 <h2 className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Raw KPI Submissions & Audit Log</h2>
@@ -338,7 +336,7 @@ export default function ExecutiveDashboard() {
                       <th className="px-6 py-4 font-medium">Handler</th>
                       <th className="px-6 py-4 font-medium">System Status</th>
                       <th className="px-6 py-4 font-medium">URL</th>
-                      <th className="px-6 py-4 font-medium text-right">Metrics (F/R/V/L/C/S/G)</th>
+                      <th className="px-6 py-4 font-medium">Performance Data</th>
                       <th className="px-6 py-4 font-medium"></th>
                     </tr>
                   </thead>
@@ -360,8 +358,16 @@ export default function ExecutiveDashboard() {
                             </div>
                           </td>
                           <td className="px-6 py-4 max-w-[200px] truncate">{editingId === log.id ? <input type="url" value={editUrl} onChange={e => setEditUrl(e.target.value)} className="w-full bg-black border border-zinc-700 rounded px-2 py-1 text-white outline-none" autoFocus /> : <a href={log.url} target="_blank" className="hover:underline text-blue-400">{log.url}</a>}</td>
-                          <td className="px-6 py-4 text-right text-xs font-mono text-zinc-400 whitespace-nowrap">
-                            <span className="text-purple-400">F:{log.followers || 0}</span> / <span className="text-blue-400">R:{log.reach || 0}</span> / V:{log.views || 0} / L:{log.likes || 0} / C:{log.comments || 0} / S:{log.shares || 0} / G:{log.groups_joined || 0}
+                          <td className="px-6 py-4">
+                            <div className="grid grid-cols-4 gap-3 min-w-[320px]">
+                              <div className="flex flex-col"><span className="text-[9px] text-zinc-500 uppercase tracking-wider">Followers</span><span className="text-purple-400 font-mono text-xs">{log.followers || 0}</span></div>
+                              <div className="flex flex-col"><span className="text-[9px] text-zinc-500 uppercase tracking-wider">Reach</span><span className="text-blue-400 font-mono text-xs">{log.reach || 0}</span></div>
+                              <div className="flex flex-col"><span className="text-[9px] text-zinc-500 uppercase tracking-wider">Views</span><span className="text-emerald-400 font-mono text-xs">{log.views || 0}</span></div>
+                              <div className="flex flex-col"><span className="text-[9px] text-zinc-500 uppercase tracking-wider">Groups</span><span className="text-zinc-300 font-mono text-xs">{log.groups_joined || 0}</span></div>
+                              <div className="flex flex-col"><span className="text-[9px] text-zinc-500 uppercase tracking-wider">Likes</span><span className="text-amber-400 font-mono text-xs">{log.likes || 0}</span></div>
+                              <div className="flex flex-col"><span className="text-[9px] text-zinc-500 uppercase tracking-wider">Comments</span><span className="text-amber-400 font-mono text-xs">{log.comments || 0}</span></div>
+                              <div className="flex flex-col"><span className="text-[9px] text-zinc-500 uppercase tracking-wider">Shares</span><span className="text-amber-400 font-mono text-xs">{log.shares || 0}</span></div>
+                            </div>
                           </td>
                           <td className="px-6 py-4 text-right">
                             {editingId === log.id ? <button onClick={() => handleSaveEdit(log.id)} className="text-emerald-400 mr-3">Save</button> : <><button onClick={() => { setEditingId(log.id); setEditUrl(log.url); }} className="text-blue-400 opacity-0 group-hover:opacity-100 mr-3">Edit</button><button onClick={() => handleDeleteLink(log.id)} className="text-red-400 opacity-0 group-hover:opacity-100">Delete</button></>}
