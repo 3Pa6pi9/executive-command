@@ -22,6 +22,7 @@ export default function ExecutiveDashboard() {
   // Filters & Management State
   const [selectedHandler, setSelectedHandler] = useState<string>("All");
   const [dateFilter, setDateFilter] = useState<"All" | "Today" | "Week" | "Month">("All");
+  const [platformFilter, setPlatformFilter] = useState<"All" | "facebook" | "twitter">("All");
   const [isAddingManager, setIsAddingManager] = useState(false);
   const [newManagerId, setNewManagerId] = useState("");
   const [newManagerPassword, setNewManagerPassword] = useState("");
@@ -123,9 +124,10 @@ export default function ExecutiveDashboard() {
     await supabase.from("campaign_links").delete().eq("id", id);
   };
 
-  const checkURL = (rawUrl: string) => {
+  const checkURL = (rawUrl: string, platformType: string = 'facebook') => {
     try {
       const p = new URL(rawUrl.trim());
+      if (platformType === 'twitter') return p.hostname.includes('twitter.com') || p.hostname.includes('x.com');
       const validHosts = ["facebook.com", "www.facebook.com", "m.facebook.com", "web.facebook.com", "fb.com", "fb.watch"];
       if (validHosts.includes(p.hostname)) {
         const path = p.pathname.toLowerCase();
@@ -141,7 +143,6 @@ export default function ExecutiveDashboard() {
     const r = log.reach || 0; const v = log.views || 0;
     const l = log.likes || 0; const c = log.comments || 0; const s = log.shares || 0;
     const totalEng = l + c + s;
-    
     if (l > v && v > 0) return "IMPOSSIBLE: Likes > Views";
     if (c > v && v > 0) return "IMPOSSIBLE: Comments > Views";
     if (totalEng > r && r > 0) return "SUSPICIOUS: Engagement > Reach";
@@ -149,22 +150,27 @@ export default function ExecutiveDashboard() {
     return null; 
   };
 
-  // --- DATA PROCESSING ---
+  // --- MULTI-FILTER DATA PROCESSING ---
   const uniqueHandlers = Array.from(new Set(logs.map(l => l.handler_name)));
-  let timeFilteredLogs = logs;
-  const now = new Date();
-  if (dateFilter === "Today") timeFilteredLogs = logs.filter(l => new Date(l.created_at).toDateString() === now.toDateString());
-  else if (dateFilter === "Week") timeFilteredLogs = logs.filter(l => new Date(l.created_at) >= new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000));
-  else if (dateFilter === "Month") timeFilteredLogs = logs.filter(l => new Date(l.created_at).getMonth() === now.getMonth() && new Date(l.created_at).getFullYear() === now.getFullYear());
   
-  const filteredLogs = selectedHandler === "All" ? timeFilteredLogs : timeFilteredLogs.filter(l => l.handler_name === selectedHandler);
-  const validCount = filteredLogs.filter(l => checkURL(l.url)).length;
+  let baseLogs = logs;
+  if (platformFilter !== "All") baseLogs = baseLogs.filter(l => (l.platform || 'facebook') === platformFilter);
+  if (selectedHandler !== "All") baseLogs = baseLogs.filter(l => l.handler_name === selectedHandler);
+  
+  let timeFilteredLogs = baseLogs;
+  const now = new Date();
+  if (dateFilter === "Today") timeFilteredLogs = baseLogs.filter(l => new Date(l.created_at).toDateString() === now.toDateString());
+  else if (dateFilter === "Week") timeFilteredLogs = baseLogs.filter(l => new Date(l.created_at) >= new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000));
+  else if (dateFilter === "Month") timeFilteredLogs = baseLogs.filter(l => new Date(l.created_at).getMonth() === now.getMonth() && new Date(l.created_at).getFullYear() === now.getFullYear());
+  
+  const filteredLogs = timeFilteredLogs;
+  const validCount = filteredLogs.filter(l => checkURL(l.url, l.platform || 'facebook')).length;
 
   // Accuracy Matrix
   const todayStr = new Date().toDateString();
   const handlerStats = uniqueHandlers.map(handler => {
     const handlerTodayLogs = logs.filter(l => l.handler_name === handler && new Date(l.created_at).toDateString() === todayStr);
-    const handlerValidCount = handlerTodayLogs.filter(l => checkURL(l.url)).length;
+    const handlerValidCount = handlerTodayLogs.filter(l => checkURL(l.url, l.platform || 'facebook')).length;
     const progressPct = Math.min(100, Math.round((handlerValidCount / dailyTarget) * 100));
     const accuracy = handlerTodayLogs.length > 0 ? Math.round((handlerValidCount / handlerTodayLogs.length) * 100) : 0;
     return { handler, handlerValidCount, progressPct, accuracy };
@@ -173,7 +179,7 @@ export default function ExecutiveDashboard() {
   // 7-Day Trend Graph Data
   const trendData = Array.from({length: 7}).map((_, i) => {
     const d = new Date(); d.setDate(d.getDate() - (6 - i));
-    const count = logs.filter(l => new Date(l.created_at).toDateString() === d.toDateString() && checkURL(l.url)).length;
+    const count = logs.filter(l => new Date(l.created_at).toDateString() === d.toDateString() && checkURL(l.url, l.platform || 'facebook')).length;
     return { label: d.toLocaleDateString('en-US', {weekday: 'short'}), count };
   });
   const maxTrend = Math.max(...trendData.map(d => d.count), 1);
@@ -223,9 +229,12 @@ export default function ExecutiveDashboard() {
         {activeTab === "dashboard" && (
           <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4">
             
-            {/* CONTROLS */}
+            {/* MULTI-FILTER CONTROLS */}
             <div className="flex flex-wrap items-center justify-between gap-4">
               <div className="flex items-center gap-3">
+                <select value={platformFilter} onChange={(e: any) => setPlatformFilter(e.target.value)} className="rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-1.5 text-sm text-white focus:border-blue-500 outline-none">
+                  <option value="All">All Platforms</option><option value="facebook">Facebook</option><option value="twitter">Twitter / X</option>
+                </select>
                 <select value={selectedHandler} onChange={(e) => setSelectedHandler(e.target.value)} className="rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-1.5 text-sm text-white focus:border-blue-500 outline-none">
                   <option value="All">All Handlers</option>
                   {uniqueHandlers.map(h => <option key={h} value={h}>{h}</option>)}
@@ -301,23 +310,7 @@ export default function ExecutiveDashboard() {
 
             </div>
 
-            {/* 7-DAY TREND GRAPH */}
-            <div className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-6 shadow-2xl">
-              <h2 className="text-xs font-bold text-zinc-400 uppercase tracking-wider mb-6">7-Day Post Rate and Performance</h2>
-              <div className="flex items-end justify-between h-32 gap-2">
-                {trendData.map((d, i) => (
-                  <div key={i} className="flex flex-col items-center gap-2 flex-1 group">
-                    <span className="text-xs font-bold text-emerald-400 opacity-0 group-hover:opacity-100 transition-opacity">{d.count}</span>
-                    <div className="w-full bg-zinc-900 rounded-t-md relative overflow-hidden flex-1 flex items-end">
-                      <div className="w-full bg-emerald-500/80 group-hover:bg-emerald-400 transition-all duration-500 rounded-t-md" style={{ height: `${(d.count / maxTrend) * 100}%`, minHeight: d.count > 0 ? '4px' : '0' }}></div>
-                    </div>
-                    <span className="text-[10px] text-zinc-500 uppercase">{d.label}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* LOGS TABLE (WITH INLINE SPARKLINE GRAPHS) */}
+            {/* LOGS TABLE */}
             <div className="overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950 shadow-2xl">
               <div className="p-4 border-b border-zinc-800 bg-zinc-900/30 flex justify-between items-center">
                 <h2 className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Raw KPI Submissions & Audit Log</h2>
@@ -328,7 +321,7 @@ export default function ExecutiveDashboard() {
                     <tr>
                       <th className="px-6 py-4 font-medium">Time (EAT)</th>
                       <th className="px-6 py-4 font-medium">Handler</th>
-                      <th className="px-6 py-4 font-medium">System Status</th>
+                      <th className="px-6 py-4 font-medium">Status & Network</th>
                       <th className="px-6 py-4 font-medium">URL</th>
                       <th className="px-6 py-4 font-medium">Performance Data</th>
                       <th className="px-6 py-4 font-medium">Impact Snapshot</th>
@@ -337,10 +330,10 @@ export default function ExecutiveDashboard() {
                   </thead>
                   <tbody className="divide-y divide-zinc-800/50">
                     {filteredLogs.map((log) => {
-                      const isValid = checkURL(editingId === log.id ? editUrl : log.url);
+                      const logPlatform = log.platform || 'facebook';
+                      const isValid = checkURL(editingId === log.id ? editUrl : log.url, logPlatform);
                       const anomalyMsg = getAnomalyFlag(log);
                       
-                      // Calculate individual row max for the sparkline graph
                       const postReach = log.reach || 0;
                       const postViews = log.views || 0;
                       const postEng = (log.likes || 0) + (log.comments || 0) + (log.shares || 0);
@@ -353,21 +346,24 @@ export default function ExecutiveDashboard() {
                           </td>
                           <td className="px-6 py-4 font-bold text-zinc-100">{log.handler_name}</td>
                           <td className="px-6 py-4">
-                            <div className="flex flex-col gap-1">
-                              <span className={`w-max px-2 py-1 text-[10px] font-bold rounded-full ${isValid ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'}`}>{isValid ? 'URL Valid' : 'URL Invalid'}</span>
-                              {anomalyMsg && <span className="w-max px-2 py-1 text-[10px] font-bold rounded-full bg-red-500/20 text-red-400">🚩 AUDIT: {anomalyMsg}</span>}
+                            <div className="flex flex-col gap-1.5 items-start">
+                              <span className={`px-2 py-1 text-[9px] font-bold rounded-full ${isValid ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'}`}>{isValid ? 'Valid' : 'Invalid'}</span>
+                              <span className={`px-2 py-1 text-[9px] font-bold rounded-full border ${logPlatform === 'twitter' ? 'bg-zinc-800 border-zinc-600 text-white' : 'bg-blue-500/10 border-blue-500/30 text-blue-400'}`}>
+                                {logPlatform === 'twitter' ? '𝕏 TWITTER' : 'f FACEBOOK'}
+                              </span>
+                              {anomalyMsg && <span className="w-max px-2 py-1 text-[9px] font-bold rounded-full bg-red-500/20 text-red-400">🚩 {anomalyMsg}</span>}
                             </div>
                           </td>
                           <td className="px-6 py-4 max-w-[200px] truncate">{editingId === log.id ? <input type="url" value={editUrl} onChange={e => setEditUrl(e.target.value)} className="w-full bg-black border border-zinc-700 rounded px-2 py-1 text-white outline-none" autoFocus /> : <a href={log.url} target="_blank" className="hover:underline text-blue-400">{log.url}</a>}</td>
                           <td className="px-6 py-4">
                             <div className="grid grid-cols-4 gap-3 min-w-[280px]">
                               <div className="flex flex-col"><span className="text-[9px] text-zinc-500 uppercase tracking-wider">Followers</span><span className="text-purple-400 font-mono text-xs">{log.followers || 0}</span></div>
-                              <div className="flex flex-col"><span className="text-[9px] text-zinc-500 uppercase tracking-wider">Reach</span><span className="text-blue-400 font-mono text-xs">{log.reach || 0}</span></div>
+                              <div className="flex flex-col"><span className="text-[9px] text-zinc-500 uppercase tracking-wider">{logPlatform === 'twitter' ? 'Impressions' : 'Reach'}</span><span className="text-blue-400 font-mono text-xs">{log.reach || 0}</span></div>
                               <div className="flex flex-col"><span className="text-[9px] text-zinc-500 uppercase tracking-wider">Views</span><span className="text-emerald-400 font-mono text-xs">{log.views || 0}</span></div>
                               <div className="flex flex-col"><span className="text-[9px] text-zinc-500 uppercase tracking-wider">Groups</span><span className="text-zinc-300 font-mono text-xs">{log.groups_joined || 0}</span></div>
                               <div className="flex flex-col"><span className="text-[9px] text-zinc-500 uppercase tracking-wider">Likes</span><span className="text-amber-400 font-mono text-xs">{log.likes || 0}</span></div>
-                              <div className="flex flex-col"><span className="text-[9px] text-zinc-500 uppercase tracking-wider">Comments</span><span className="text-amber-400 font-mono text-xs">{log.comments || 0}</span></div>
-                              <div className="flex flex-col"><span className="text-[9px] text-zinc-500 uppercase tracking-wider">Shares</span><span className="text-amber-400 font-mono text-xs">{log.shares || 0}</span></div>
+                              <div className="flex flex-col"><span className="text-[9px] text-zinc-500 uppercase tracking-wider">{logPlatform === 'twitter' ? 'Replies' : 'Comments'}</span><span className="text-amber-400 font-mono text-xs">{log.comments || 0}</span></div>
+                              <div className="flex flex-col"><span className="text-[9px] text-zinc-500 uppercase tracking-wider">{logPlatform === 'twitter' ? 'Retweets' : 'Shares'}</span><span className="text-amber-400 font-mono text-xs">{log.shares || 0}</span></div>
                             </div>
                           </td>
                           <td className="px-6 py-4 w-32 align-middle">

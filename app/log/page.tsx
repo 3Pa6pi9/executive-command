@@ -6,15 +6,21 @@ import { managerSupabase as supabase } from "@/lib/supabase";
 export default function LogPage() {
   const [session, setSession] = useState<any>(null);
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
+  const [isLoginMode, setIsLoginMode] = useState(true);
+  
+  // Auth State
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [accountPlatform, setAccountPlatform] = useState("facebook");
+  
   const [status, setStatus] = useState<{ type: "idle" | "loading" | "error" | "success"; msg: string }>({ type: "idle", msg: "" });
-
   const [myLogs, setMyLogs] = useState<any[]>([]);
   const [dailyTarget, setDailyTarget] = useState(20);
   const [motd, setMotd] = useState("");
 
+  // Form State
   const [url, setUrl] = useState("");
+  const [linkPlatform, setLinkPlatform] = useState("facebook");
   const [reach, setReach] = useState("");
   const [views, setViews] = useState("");
   const [likes, setLikes] = useState("");
@@ -47,7 +53,19 @@ export default function LogPage() {
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
-    await supabase.auth.signInWithPassword({ email: `${username.toLowerCase().trim()}@executive-command.com`, password });
+    const formattedEmail = `${username.toLowerCase().trim()}@executive-command.com`;
+    if (isLoginMode) {
+      const { error } = await supabase.auth.signInWithPassword({ email: formattedEmail, password });
+      if (error) alert("Login failed: " + error.message);
+    } else {
+      const { error } = await supabase.auth.signUp({ 
+        email: formattedEmail, 
+        password,
+        options: { data: { platform: accountPlatform } }
+      });
+      if (error) alert("Sign up failed: " + error.message);
+      else alert("Account Created Successfully! You can now log in.");
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -55,11 +73,14 @@ export default function LogPage() {
     setStatus({ type: "loading", msg: "Submitting to MEL..." });
     if (!url.trim()) return setStatus({ type: "error", msg: "Please enter a valid URL." });
 
+    const userPlatform = session?.user?.user_metadata?.platform || "facebook";
+    const finalPlatform = userPlatform === "both" ? linkPlatform : userPlatform;
+
     try {
       const res = await fetch("/api/log", {
         method: "POST", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${session.access_token}` },
         body: JSON.stringify({ 
-          url, handler_name: session.user.email.split("@")[0],
+          url, handler_name: session.user.email.split("@")[0], platform: finalPlatform,
           reach, views, likes, comments, shares, groups_joined: groupsJoined, followers 
         }),
       });
@@ -71,9 +92,10 @@ export default function LogPage() {
     } catch { setStatus({ type: "error", msg: "Network Error" }); }
   };
 
-  const checkURL = (rawUrl: string) => {
+  const checkURL = (rawUrl: string, platformType: string) => {
     try {
       const p = new URL(rawUrl.trim());
+      if (platformType === 'twitter') return p.hostname.includes('twitter.com') || p.hostname.includes('x.com');
       const validHosts = ["facebook.com", "www.facebook.com", "m.facebook.com", "web.facebook.com", "fb.com", "fb.watch"];
       if (validHosts.includes(p.hostname)) {
         const path = p.pathname.toLowerCase();
@@ -86,9 +108,12 @@ export default function LogPage() {
 
   let todaysValidCount = 0;
   const todayStr = new Date().toDateString();
-  myLogs.forEach(log => { if (new Date(log.created_at).toDateString() === todayStr && checkURL(log.url)) todaysValidCount++; });
+  myLogs.forEach(log => { if (new Date(log.created_at).toDateString() === todayStr && checkURL(log.url, log.platform || 'facebook')) todaysValidCount++; });
 
   if (isCheckingAuth) return <div className="flex min-h-screen items-center justify-center bg-black text-zinc-500">Initializing...</div>;
+
+  const userPlatform = session?.user?.user_metadata?.platform || "facebook";
+  const displayPlatform = userPlatform === "both" ? linkPlatform : userPlatform;
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-black p-4 text-zinc-100">
@@ -105,21 +130,48 @@ export default function LogPage() {
               <h1 className="text-2xl font-bold text-center">Fleet Authentication</h1>
               <input type="text" required value={username} onChange={(e) => setUsername(e.target.value)} placeholder="Handler ID" className="w-full rounded-lg bg-zinc-900 border border-zinc-800 p-3 text-sm focus:border-blue-500 outline-none" />
               <input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Passcode" className="w-full rounded-lg bg-zinc-900 border border-zinc-800 p-3 text-sm focus:border-blue-500 outline-none" />
-              <button type="submit" className="w-full bg-white text-black p-3 rounded-lg font-bold hover:bg-zinc-200 transition-colors">Login</button>
+              
+              {!isLoginMode && (
+                <div className="flex flex-col gap-1">
+                  <label className="text-[10px] text-zinc-400 font-bold uppercase ml-1">Assigned Platform</label>
+                  <select value={accountPlatform} onChange={(e) => setAccountPlatform(e.target.value)} className="w-full rounded-lg bg-zinc-900 border border-zinc-800 p-3 text-sm focus:border-blue-500 outline-none text-zinc-300">
+                    <option value="facebook">Facebook Only</option>
+                    <option value="twitter">Twitter / X Only</option>
+                    <option value="both">Both Platforms</option>
+                  </select>
+                </div>
+              )}
+
+              <button type="submit" className="w-full bg-white text-black p-3 rounded-lg font-bold hover:bg-zinc-200 transition-colors">
+                {isLoginMode ? "Login" : "Create Account"}
+              </button>
+              <div className="text-center">
+                <button type="button" onClick={() => setIsLoginMode(!isLoginMode)} className="text-xs text-zinc-500 hover:text-white transition-colors">
+                  {isLoginMode ? "Need an account? Sign Up" : "Already have an account? Login"}
+                </button>
+              </div>
             </form>
           ) : (
             <div className="space-y-6">
               <div className="text-center"><h1 className="text-xl font-bold">MEL Submission</h1><p className="text-sm text-zinc-400">ID: {session.user.email.split("@")[0]}</p></div>
               <form onSubmit={handleSubmit} className="space-y-4">
-                <input type="url" required value={url} onChange={(e) => setUrl(e.target.value)} placeholder="Facebook Post URL" className="w-full rounded-lg bg-zinc-900 border border-zinc-800 p-3 text-sm focus:border-blue-500 outline-none" />
+                
+                {userPlatform === "both" && (
+                  <select value={linkPlatform} onChange={(e) => setLinkPlatform(e.target.value)} className="w-full rounded-lg bg-zinc-900 border border-zinc-800 p-3 text-sm focus:border-blue-500 outline-none mb-2 text-zinc-300">
+                    <option value="facebook">Submitting a Facebook Post</option>
+                    <option value="twitter">Submitting a Twitter / X Post</option>
+                  </select>
+                )}
+
+                <input type="url" required value={url} onChange={(e) => setUrl(e.target.value)} placeholder={displayPlatform === 'twitter' ? "Twitter / X URL" : "Facebook Post URL"} className="w-full rounded-lg bg-zinc-900 border border-zinc-800 p-3 text-sm focus:border-blue-500 outline-none" />
                 <div className="grid grid-cols-2 gap-3">
                   <input type="number" min="0" value={followers} onChange={(e) => setFollowers(e.target.value)} placeholder="Followers" className="w-full rounded-lg bg-black border border-zinc-800 p-2 text-sm focus:border-blue-500 outline-none" />
-                  <input type="number" min="0" value={groupsJoined} onChange={(e) => setGroupsJoined(e.target.value)} placeholder="Groups Joined" className="w-full rounded-lg bg-black border border-zinc-800 p-2 text-sm focus:border-blue-500 outline-none" />
-                  <input type="number" min="0" value={reach} onChange={(e) => setReach(e.target.value)} placeholder="Reach" className="w-full rounded-lg bg-black border border-zinc-800 p-2 text-sm focus:border-blue-500 outline-none" />
+                  <input type="number" min="0" value={groupsJoined} onChange={(e) => setGroupsJoined(e.target.value)} placeholder="Groups Joined" className="w-full rounded-lg bg-black border border-zinc-800 p-2 text-sm focus:border-blue-500 outline-none" disabled={displayPlatform === 'twitter'} />
+                  <input type="number" min="0" value={reach} onChange={(e) => setReach(e.target.value)} placeholder={displayPlatform === 'twitter' ? "Impressions" : "Reach"} className="w-full rounded-lg bg-black border border-zinc-800 p-2 text-sm focus:border-blue-500 outline-none" />
                   <input type="number" min="0" value={views} onChange={(e) => setViews(e.target.value)} placeholder="Views" className="w-full rounded-lg bg-black border border-zinc-800 p-2 text-sm focus:border-blue-500 outline-none" />
                   <input type="number" min="0" value={likes} onChange={(e) => setLikes(e.target.value)} placeholder="Likes" className="w-full rounded-lg bg-black border border-zinc-800 p-2 text-sm focus:border-blue-500 outline-none" />
-                  <input type="number" min="0" value={comments} onChange={(e) => setComments(e.target.value)} placeholder="Comments" className="w-full rounded-lg bg-black border border-zinc-800 p-2 text-sm focus:border-blue-500 outline-none" />
-                  <div className="col-span-2"><input type="number" min="0" value={shares} onChange={(e) => setShares(e.target.value)} placeholder="Shares" className="w-full rounded-lg bg-black border border-zinc-800 p-2 text-sm focus:border-blue-500 outline-none" /></div>
+                  <input type="number" min="0" value={comments} onChange={(e) => setComments(e.target.value)} placeholder={displayPlatform === 'twitter' ? "Replies" : "Comments"} className="w-full rounded-lg bg-black border border-zinc-800 p-2 text-sm focus:border-blue-500 outline-none" />
+                  <div className="col-span-2"><input type="number" min="0" value={shares} onChange={(e) => setShares(e.target.value)} placeholder={displayPlatform === 'twitter' ? "Retweets / Quotes" : "Shares"} className="w-full rounded-lg bg-black border border-zinc-800 p-2 text-sm focus:border-blue-500 outline-none" /></div>
                 </div>
                 {status.type !== "idle" && <div className={`text-sm text-center ${status.type === "error" ? "text-red-400" : "text-emerald-400"}`}>{status.msg}</div>}
                 <button type="submit" disabled={status.type === "loading"} className="w-full bg-emerald-500 text-white p-3 rounded-lg font-bold hover:bg-emerald-600 transition-colors">
