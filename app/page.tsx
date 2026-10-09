@@ -140,6 +140,20 @@ export default function ExecutiveDashboard() {
     return false;
   };
 
+  // --- ANOMALY DETECTION LOGIC ---
+  const getAnomalyFlag = (log: any) => {
+    const r = log.reach || 0; const v = log.views || 0;
+    const l = log.likes || 0; const c = log.comments || 0; const s = log.shares || 0;
+    const totalEng = l + c + s;
+    
+    if (l > v && v > 0) return "IMPOSSIBLE: Likes > Views";
+    if (c > v && v > 0) return "IMPOSSIBLE: Comments > Views";
+    if (totalEng > r && r > 0) return "SUSPICIOUS: Engagement > Reach";
+    if (v > 0 && (totalEng / v) > 0.4) return "SUSPICIOUS: >40% Engagement Rate (Bot/Fake?)";
+    
+    return null; // Passes checks
+  };
+
   // --- DATA PROCESSING ---
   const uniqueHandlers = Array.from(new Set(logs.map(l => l.handler_name)));
   let timeFilteredLogs = logs;
@@ -295,31 +309,18 @@ export default function ExecutiveDashboard() {
 
             </div>
 
-            {/* 7-DAY TREND GRAPH */}
-            <div className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-6 shadow-2xl">
-              <h2 className="text-xs font-bold text-zinc-400 uppercase tracking-wider mb-6">7-Day Post Rate and Performance</h2>
-              <div className="flex items-end justify-between h-32 gap-2">
-                {trendData.map((d, i) => (
-                  <div key={i} className="flex flex-col items-center gap-2 flex-1 group">
-                    <span className="text-xs font-bold text-emerald-400 opacity-0 group-hover:opacity-100 transition-opacity">{d.count}</span>
-                    <div className="w-full bg-zinc-900 rounded-t-md relative overflow-hidden flex-1 flex items-end">
-                      <div className="w-full bg-emerald-500/80 group-hover:bg-emerald-400 transition-all duration-500 rounded-t-md" style={{ height: `${(d.count / maxTrend) * 100}%`, minHeight: d.count > 0 ? '4px' : '0' }}></div>
-                    </div>
-                    <span className="text-[10px] text-zinc-500 uppercase">{d.label}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* LOGS TABLE (WITH EDIT/DELETE/STATUS & TIMEZONE) */}
+            {/* LOGS TABLE WITH ANOMALY DETECTION */}
             <div className="overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950 shadow-2xl">
+              <div className="p-4 border-b border-zinc-800 bg-zinc-900/30 flex justify-between items-center">
+                <h2 className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Raw KPI Submissions & Audit Log</h2>
+              </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-sm text-zinc-300">
                   <thead className="bg-zinc-900/50 text-xs uppercase tracking-wider text-zinc-500 border-b border-zinc-800">
                     <tr>
                       <th className="px-6 py-4 font-medium">Time (EAT)</th>
                       <th className="px-6 py-4 font-medium">Handler</th>
-                      <th className="px-6 py-4 font-medium">Status</th>
+                      <th className="px-6 py-4 font-medium">System Status</th>
                       <th className="px-6 py-4 font-medium">URL</th>
                       <th className="px-6 py-4 font-medium text-right">Metrics (F/R/V/L/C/S/G)</th>
                       <th className="px-6 py-4 font-medium"></th>
@@ -328,13 +329,20 @@ export default function ExecutiveDashboard() {
                   <tbody className="divide-y divide-zinc-800/50">
                     {filteredLogs.map((log) => {
                       const isValid = checkURL(editingId === log.id ? editUrl : log.url);
+                      const anomalyMsg = getAnomalyFlag(log);
+                      
                       return (
-                        <tr key={log.id} className="hover:bg-zinc-900/80 group">
+                        <tr key={log.id} className={`group ${anomalyMsg ? 'bg-red-500/5 hover:bg-red-500/10' : 'hover:bg-zinc-900/80'}`}>
                           <td className="px-6 py-4 text-zinc-400 whitespace-nowrap">
                             {new Date(log.created_at).toLocaleTimeString('en-US', { timeZone: 'Africa/Nairobi', hour: '2-digit', minute:'2-digit' })}
                           </td>
                           <td className="px-6 py-4 font-bold text-zinc-100">{log.handler_name}</td>
-                          <td className="px-6 py-4"><span className={`px-2 py-1 text-xs font-medium rounded-full ${isValid ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'}`}>{isValid ? 'Valid' : 'Invalid'}</span></td>
+                          <td className="px-6 py-4">
+                            <div className="flex flex-col gap-1">
+                              <span className={`w-max px-2 py-1 text-[10px] font-bold rounded-full ${isValid ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'}`}>{isValid ? 'URL Valid' : 'URL Invalid'}</span>
+                              {anomalyMsg && <span className="w-max px-2 py-1 text-[10px] font-bold rounded-full bg-red-500/20 text-red-400">🚩 AUDIT: {anomalyMsg}</span>}
+                            </div>
+                          </td>
                           <td className="px-6 py-4 max-w-[200px] truncate">{editingId === log.id ? <input type="url" value={editUrl} onChange={e => setEditUrl(e.target.value)} className="w-full bg-black border border-zinc-700 rounded px-2 py-1 text-white outline-none" autoFocus /> : <a href={log.url} target="_blank" className="hover:underline text-blue-400">{log.url}</a>}</td>
                           <td className="px-6 py-4 text-right text-xs font-mono text-zinc-400 whitespace-nowrap">
                             <span className="text-purple-400">F:{log.followers || 0}</span> / <span className="text-blue-400">R:{log.reach || 0}</span> / V:{log.views || 0} / L:{log.likes || 0} / C:{log.comments || 0} / S:{log.shares || 0} / G:{log.groups_joined || 0}
