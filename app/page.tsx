@@ -10,7 +10,6 @@ export default function ExecutiveDashboard() {
   const [authStatus, setAuthStatus] = useState("");
   const [activeTab, setActiveTab] = useState<"dashboard" | "settings">("dashboard");
   const [logs, setLogs] = useState<any[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
   
   // Settings State
   const [dailyTarget, setDailyTarget] = useState(20);
@@ -54,7 +53,6 @@ export default function ExecutiveDashboard() {
   const fetchLogs = async () => {
     const { data } = await supabase.from("campaign_links").select("*").order("created_at", { ascending: false });
     if (data) setLogs(data);
-    setIsLoading(false);
   };
 
   const fetchSettings = async () => {
@@ -91,11 +89,9 @@ export default function ExecutiveDashboard() {
 
   const handleAddManager = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsLoading(true);
     const res = await fetch("/api/managers", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ handler_name: newManagerId, password: newManagerPassword }) });
     if (res.ok) { alert(`Manager provisioned.`); setNewManagerId(""); setNewManagerPassword(""); setIsAddingManager(false); } 
     else alert(`Error`);
-    setIsLoading(false);
   };
 
   const handleResetHandlerPasscode = async (e: React.FormEvent) => {
@@ -149,8 +145,7 @@ export default function ExecutiveDashboard() {
     if (l > v && v > 0) return "IMPOSSIBLE: Likes > Views";
     if (c > v && v > 0) return "IMPOSSIBLE: Comments > Views";
     if (totalEng > r && r > 0) return "SUSPICIOUS: Engagement > Reach";
-    if (v > 0 && (totalEng / v) > 0.4) return "SUSPICIOUS: >40% Engagement Rate (Bot/Fake?)";
-    
+    if (v > 0 && (totalEng / v) > 0.4) return "SUSPICIOUS: >40% Engagement Rate";
     return null; 
   };
 
@@ -164,7 +159,6 @@ export default function ExecutiveDashboard() {
   
   const filteredLogs = selectedHandler === "All" ? timeFilteredLogs : timeFilteredLogs.filter(l => l.handler_name === selectedHandler);
   const validCount = filteredLogs.filter(l => checkURL(l.url)).length;
-  const invalidCount = filteredLogs.length - validCount;
 
   // Accuracy Matrix
   const todayStr = new Date().toDateString();
@@ -323,7 +317,7 @@ export default function ExecutiveDashboard() {
               </div>
             </div>
 
-            {/* LOGS TABLE (REMASTERED METRICS GRID) */}
+            {/* LOGS TABLE (WITH INLINE SPARKLINE GRAPHS) */}
             <div className="overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950 shadow-2xl">
               <div className="p-4 border-b border-zinc-800 bg-zinc-900/30 flex justify-between items-center">
                 <h2 className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Raw KPI Submissions & Audit Log</h2>
@@ -337,6 +331,7 @@ export default function ExecutiveDashboard() {
                       <th className="px-6 py-4 font-medium">System Status</th>
                       <th className="px-6 py-4 font-medium">URL</th>
                       <th className="px-6 py-4 font-medium">Performance Data</th>
+                      <th className="px-6 py-4 font-medium">Impact Snapshot</th>
                       <th className="px-6 py-4 font-medium"></th>
                     </tr>
                   </thead>
@@ -344,6 +339,12 @@ export default function ExecutiveDashboard() {
                     {filteredLogs.map((log) => {
                       const isValid = checkURL(editingId === log.id ? editUrl : log.url);
                       const anomalyMsg = getAnomalyFlag(log);
+                      
+                      // Calculate individual row max for the sparkline graph
+                      const postReach = log.reach || 0;
+                      const postViews = log.views || 0;
+                      const postEng = (log.likes || 0) + (log.comments || 0) + (log.shares || 0);
+                      const maxPostVal = Math.max(postReach, postViews, postEng, 1);
                       
                       return (
                         <tr key={log.id} className={`group ${anomalyMsg ? 'bg-red-500/5 hover:bg-red-500/10' : 'hover:bg-zinc-900/80'}`}>
@@ -359,7 +360,7 @@ export default function ExecutiveDashboard() {
                           </td>
                           <td className="px-6 py-4 max-w-[200px] truncate">{editingId === log.id ? <input type="url" value={editUrl} onChange={e => setEditUrl(e.target.value)} className="w-full bg-black border border-zinc-700 rounded px-2 py-1 text-white outline-none" autoFocus /> : <a href={log.url} target="_blank" className="hover:underline text-blue-400">{log.url}</a>}</td>
                           <td className="px-6 py-4">
-                            <div className="grid grid-cols-4 gap-3 min-w-[320px]">
+                            <div className="grid grid-cols-4 gap-3 min-w-[280px]">
                               <div className="flex flex-col"><span className="text-[9px] text-zinc-500 uppercase tracking-wider">Followers</span><span className="text-purple-400 font-mono text-xs">{log.followers || 0}</span></div>
                               <div className="flex flex-col"><span className="text-[9px] text-zinc-500 uppercase tracking-wider">Reach</span><span className="text-blue-400 font-mono text-xs">{log.reach || 0}</span></div>
                               <div className="flex flex-col"><span className="text-[9px] text-zinc-500 uppercase tracking-wider">Views</span><span className="text-emerald-400 font-mono text-xs">{log.views || 0}</span></div>
@@ -367,6 +368,22 @@ export default function ExecutiveDashboard() {
                               <div className="flex flex-col"><span className="text-[9px] text-zinc-500 uppercase tracking-wider">Likes</span><span className="text-amber-400 font-mono text-xs">{log.likes || 0}</span></div>
                               <div className="flex flex-col"><span className="text-[9px] text-zinc-500 uppercase tracking-wider">Comments</span><span className="text-amber-400 font-mono text-xs">{log.comments || 0}</span></div>
                               <div className="flex flex-col"><span className="text-[9px] text-zinc-500 uppercase tracking-wider">Shares</span><span className="text-amber-400 font-mono text-xs">{log.shares || 0}</span></div>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 w-32 align-middle">
+                            <div className="flex flex-col gap-2 w-full justify-center">
+                               <div className="flex items-center gap-2 group-hover:opacity-100 opacity-70 transition-opacity">
+                                  <span className="text-[8px] text-blue-500 font-bold w-2">R</span>
+                                  <div className="flex-1 bg-zinc-900 h-1.5 rounded-full overflow-hidden"><div className="bg-blue-500 h-full transition-all duration-500" style={{ width: `${(postReach/maxPostVal)*100}%`}}></div></div>
+                               </div>
+                               <div className="flex items-center gap-2 group-hover:opacity-100 opacity-70 transition-opacity">
+                                  <span className="text-[8px] text-emerald-500 font-bold w-2">V</span>
+                                  <div className="flex-1 bg-zinc-900 h-1.5 rounded-full overflow-hidden"><div className="bg-emerald-500 h-full transition-all duration-500" style={{ width: `${(postViews/maxPostVal)*100}%`}}></div></div>
+                               </div>
+                               <div className="flex items-center gap-2 group-hover:opacity-100 opacity-70 transition-opacity">
+                                  <span className="text-[8px] text-amber-500 font-bold w-2">E</span>
+                                  <div className="flex-1 bg-zinc-900 h-1.5 rounded-full overflow-hidden"><div className="bg-amber-500 h-full transition-all duration-500" style={{ width: `${(postEng/maxPostVal)*100}%`}}></div></div>
+                               </div>
                             </div>
                           </td>
                           <td className="px-6 py-4 text-right">
