@@ -151,7 +151,7 @@ export default function ExecutiveDashboard() {
     if (totalEng > r && r > 0) return "SUSPICIOUS: Engagement > Reach";
     if (v > 0 && (totalEng / v) > 0.4) return "SUSPICIOUS: >40% Engagement Rate (Bot/Fake?)";
     
-    return null; // Passes checks
+    return null; 
   };
 
   // --- DATA PROCESSING ---
@@ -184,7 +184,7 @@ export default function ExecutiveDashboard() {
   });
   const maxTrend = Math.max(...trendData.map(d => d.count), 1);
 
-  // MEL GRAPHS CALCULATIONS
+  // MEL GRAPHS CALCULATIONS (Dynamically updates based on dropdowns)
   const totalReach = filteredLogs.reduce((sum, log) => sum + (log.reach || 0), 0);
   const totalViews = filteredLogs.reduce((sum, log) => sum + (log.views || 0), 0);
   const totalFollowers = filteredLogs.reduce((sum, log) => sum + (log.followers || 0), 0);
@@ -309,6 +309,22 @@ export default function ExecutiveDashboard() {
 
             </div>
 
+            {/* 7-DAY TREND GRAPH */}
+            <div className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-6 shadow-2xl">
+              <h2 className="text-xs font-bold text-zinc-400 uppercase tracking-wider mb-6">7-Day Post Rate and Performance</h2>
+              <div className="flex items-end justify-between h-32 gap-2">
+                {trendData.map((d, i) => (
+                  <div key={i} className="flex flex-col items-center gap-2 flex-1 group">
+                    <span className="text-xs font-bold text-emerald-400 opacity-0 group-hover:opacity-100 transition-opacity">{d.count}</span>
+                    <div className="w-full bg-zinc-900 rounded-t-md relative overflow-hidden flex-1 flex items-end">
+                      <div className="w-full bg-emerald-500/80 group-hover:bg-emerald-400 transition-all duration-500 rounded-t-md" style={{ height: `${(d.count / maxTrend) * 100}%`, minHeight: d.count > 0 ? '4px' : '0' }}></div>
+                    </div>
+                    <span className="text-[10px] text-zinc-500 uppercase">{d.label}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
             {/* LOGS TABLE WITH ANOMALY DETECTION */}
             <div className="overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950 shadow-2xl">
               <div className="p-4 border-b border-zinc-800 bg-zinc-900/30 flex justify-between items-center">
@@ -360,7 +376,7 @@ export default function ExecutiveDashboard() {
           </div>
         )}
 
-        {/* SETTINGS TAB (RESTORED) */}
+        {/* SETTINGS TAB */}
         {activeTab === "settings" && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 animate-in fade-in slide-in-from-bottom-4">
             
