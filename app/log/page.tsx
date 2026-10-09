@@ -28,6 +28,8 @@ export default function LogPage() {
   const [shares, setShares] = useState("");
   const [groupsJoined, setGroupsJoined] = useState("");
   const [followers, setFollowers] = useState("");
+  
+  const [isFetchingTwitter, setIsFetchingTwitter] = useState(false);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -66,6 +68,37 @@ export default function LogPage() {
       if (error) alert("Sign up failed: " + error.message);
       else alert("Account Created Successfully! You can now log in.");
     }
+  };
+
+  // --- NEW: AUTO-FILL TWITTER LOGIC ---
+  const handleUrlPasteOrBlur = async () => {
+    const isTwitter = url.includes("twitter.com") || url.includes("x.com");
+    if (!url || !isTwitter) return;
+    
+    setIsFetchingTwitter(true);
+    setStatus({ type: "loading", msg: "Auto-fetching live metrics from X..." });
+    
+    try {
+      const res = await fetch("/api/twitter", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setReach(data.reach.toString());
+        setViews(data.views.toString());
+        setLikes(data.likes.toString());
+        setComments(data.comments.toString());
+        setShares(data.shares.toString());
+        setStatus({ type: "success", msg: "X Metrics Auto-Filled! You can now submit." });
+      } else {
+        setStatus({ type: "error", msg: data.error || "Could not auto-fetch X metrics." });
+      }
+    } catch (err) {
+      setStatus({ type: "error", msg: "Network error fetching X metrics." });
+    }
+    setIsFetchingTwitter(false);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -163,21 +196,37 @@ export default function LogPage() {
                   </select>
                 )}
 
-                <input type="url" required value={url} onChange={(e) => setUrl(e.target.value)} placeholder={displayPlatform === 'twitter' ? "Twitter / X URL" : "Facebook Post URL"} className="w-full rounded-lg bg-zinc-900 border border-zinc-800 p-3 text-sm focus:border-blue-500 outline-none" />
-                <div className="grid grid-cols-2 gap-3">
+                {/* THE UPDATED URL INPUT - TRIGGERS AUTOFILL ON BLUR */}
+                <input 
+                  type="url" 
+                  required 
+                  value={url} 
+                  onChange={(e) => setUrl(e.target.value)} 
+                  onBlur={handleUrlPasteOrBlur}
+                  placeholder={displayPlatform === 'twitter' ? "Paste X URL (Tap outside to Auto-Fill)" : "Facebook Post URL"} 
+                  className={`w-full rounded-lg bg-zinc-900 border p-3 text-sm focus:border-blue-500 outline-none transition-colors ${isFetchingTwitter ? 'border-blue-500 animate-pulse' : 'border-zinc-800'}`} 
+                />
+                
+                <div className="grid grid-cols-2 gap-3 relative">
+                  {/* Visual Overlay when fetching */}
+                  {isFetchingTwitter && <div className="absolute inset-0 bg-zinc-950/50 backdrop-blur-[1px] z-10 rounded-lg flex items-center justify-center"><span className="text-blue-400 font-bold text-sm animate-pulse">Pulling API Data...</span></div>}
+                  
                   <input type="number" min="0" value={followers} onChange={(e) => setFollowers(e.target.value)} placeholder="Followers" className="w-full rounded-lg bg-black border border-zinc-800 p-2 text-sm focus:border-blue-500 outline-none" />
-                  <input type="number" min="0" value={groupsJoined} onChange={(e) => setGroupsJoined(e.target.value)} placeholder="Groups Joined" className="w-full rounded-lg bg-black border border-zinc-800 p-2 text-sm focus:border-blue-500 outline-none" disabled={displayPlatform === 'twitter'} />
+                  <input type="number" min="0" value={groupsJoined} onChange={(e) => setGroupsJoined(e.target.value)} placeholder="Groups Joined" className="w-full rounded-lg bg-black border border-zinc-800 p-2 text-sm focus:border-blue-500 outline-none disabled:opacity-30" disabled={displayPlatform === 'twitter'} />
                   <input type="number" min="0" value={reach} onChange={(e) => setReach(e.target.value)} placeholder={displayPlatform === 'twitter' ? "Impressions" : "Reach"} className="w-full rounded-lg bg-black border border-zinc-800 p-2 text-sm focus:border-blue-500 outline-none" />
                   <input type="number" min="0" value={views} onChange={(e) => setViews(e.target.value)} placeholder="Views" className="w-full rounded-lg bg-black border border-zinc-800 p-2 text-sm focus:border-blue-500 outline-none" />
                   <input type="number" min="0" value={likes} onChange={(e) => setLikes(e.target.value)} placeholder="Likes" className="w-full rounded-lg bg-black border border-zinc-800 p-2 text-sm focus:border-blue-500 outline-none" />
                   <input type="number" min="0" value={comments} onChange={(e) => setComments(e.target.value)} placeholder={displayPlatform === 'twitter' ? "Replies" : "Comments"} className="w-full rounded-lg bg-black border border-zinc-800 p-2 text-sm focus:border-blue-500 outline-none" />
                   <div className="col-span-2"><input type="number" min="0" value={shares} onChange={(e) => setShares(e.target.value)} placeholder={displayPlatform === 'twitter' ? "Retweets / Quotes" : "Shares"} className="w-full rounded-lg bg-black border border-zinc-800 p-2 text-sm focus:border-blue-500 outline-none" /></div>
                 </div>
+                
                 {status.type !== "idle" && <div className={`text-sm text-center ${status.type === "error" ? "text-red-400" : "text-emerald-400"}`}>{status.msg}</div>}
-                <button type="submit" disabled={status.type === "loading"} className="w-full bg-emerald-500 text-white p-3 rounded-lg font-bold hover:bg-emerald-600 transition-colors">
+                
+                <button type="submit" disabled={status.type === "loading" || isFetchingTwitter} className="w-full bg-emerald-500 text-white p-3 rounded-lg font-bold hover:bg-emerald-600 transition-colors disabled:opacity-50">
                   {status.type === "loading" ? "Processing..." : "Submit MEL Data"}
                 </button>
               </form>
+              
               <div className="pt-4 border-t border-zinc-800">
                 <div className="flex justify-between items-center mb-2">
                   <div className="text-xs text-zinc-400">Target Progress: <span className="font-bold text-emerald-400">{todaysValidCount} / {dailyTarget}</span></div>
