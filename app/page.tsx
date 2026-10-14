@@ -5,6 +5,11 @@ import { managerSupabase as supabase } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
 
 const PLATFORMS = ["twitter", "instagram", "facebook", "tiktok", "blog", "medium"];
+const HIERARCHY_COUNTRIES = [
+  "UK", "Malaysia", "Russia", "Belurus", "Romania", "France", 
+  "Afghan", "Crotia", "SA", "Serbia", "New Serbia", "Germany", 
+  "Kosavo", "Greece", "Hungary", "Africa"
+];
 
 export default function MasterGatekeeper() {
   const router = useRouter();
@@ -14,7 +19,7 @@ export default function MasterGatekeeper() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
-  const [country, setCountry] = useState("Ethiopia");
+  const [selectedCountries, setSelectedCountries] = useState<string[]>(["Africa"]);
   const [role, setRole] = useState<"smm" | "team_leader">("smm");
   
   const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>(["twitter"]);
@@ -44,6 +49,10 @@ export default function MasterGatekeeper() {
     }
   };
 
+  const toggleCountry = (c: string) => {
+    setSelectedCountries(prev => prev.includes(c) ? prev.filter(x => x !== c) : [...prev, c]);
+  };
+
   const togglePlatform = (p: string) => {
     setSelectedPlatforms(prev => prev.includes(p) ? prev.filter(x => x !== p) : [...prev, p]);
   };
@@ -69,6 +78,7 @@ export default function MasterGatekeeper() {
       if (error) return setStatus({ type: "error", msg: error.message });
       if (data.user) await routeUserToDashboard(data.user.id);
     } else {
+      if (selectedCountries.length === 0) return setStatus({ type: "error", msg: "Select at least one Country." });
       if (role === 'smm' && selectedTlIds.length === 0) return setStatus({ type: "error", msg: "Select at least one Team Leader." });
       if (role === 'smm' && selectedPlatforms.length === 0) return setStatus({ type: "error", msg: "Select at least one Platform." });
       
@@ -76,7 +86,8 @@ export default function MasterGatekeeper() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
-          email, password, role, full_name: fullName, country, 
+          email, password, role, full_name: fullName, 
+          country: selectedCountries.join(", "), 
           team_leader_id: selectedTlIds[0],
           team_leader_ids: selectedTlIds,
           platforms: selectedPlatforms
@@ -116,13 +127,19 @@ export default function MasterGatekeeper() {
                 </div>
 
                 <div>
-                  <label className="text-[10px] uppercase font-bold text-zinc-400 ml-1">{role === 'smm' ? "Handler Name" : "Team Leader Name (e.g. Jeff, Ali, Erica, Josiah)"}</label>
+                  <label className="text-[10px] uppercase font-bold text-zinc-400 ml-1">{role === 'smm' ? "Handler Name" : "Team Leader Name (Jeff, Ali, Erica, Mani, Jennifer, Beulah, Mamhmdur, Mae, Josiah)"}</label>
                   <input type="text" required value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Enter Name" className="w-full mt-1 rounded-lg bg-black border border-zinc-800 p-3 text-sm focus:border-emerald-500 outline-none text-white" />
                 </div>
 
                 <div>
-                  <label className="text-[10px] uppercase font-bold text-zinc-400 ml-1">Country (Comma separated if multiple)</label>
-                  <input type="text" required value={country} onChange={(e) => setCountry(e.target.value)} placeholder="e.g. Ethiopia, Kenya, Ghana" className="w-full mt-1 rounded-lg bg-black border border-zinc-800 p-3 text-sm focus:border-emerald-500 outline-none text-white" />
+                  <label className="text-[10px] uppercase font-bold text-zinc-400 ml-1">Choose Country (Can select multiple)</label>
+                  <div className="grid grid-cols-4 gap-1.5 mt-1">
+                    {HIERARCHY_COUNTRIES.map(c => (
+                      <button type="button" key={c} onClick={() => toggleCountry(c)} className={`py-1.5 px-2 rounded-lg text-[11px] font-bold border transition-all truncate ${selectedCountries.includes(c) ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300' : 'bg-black border-zinc-800 text-zinc-500'}`}>
+                        {c}
+                      </button>
+                    ))}
+                  </div>
                 </div>
                 
                 {role === 'smm' && (
