@@ -20,7 +20,6 @@ export default function MasterGatekeeper() {
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
   const [selectedCountries, setSelectedCountries] = useState<string[]>(["Africa"]);
-  const [role, setRole] = useState<"smm" | "team_leader">("smm");
   
   const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>(["twitter"]);
   const [selectedTlIds, setSelectedTlIds] = useState<string[]>([]);
@@ -28,24 +27,29 @@ export default function MasterGatekeeper() {
   const [status, setStatus] = useState<{ type: "idle" | "loading" | "error" | "success"; msg: string }>({ type: "idle", msg: "" });
 
   useEffect(() => {
-    checkSession();
-    fetchTeamLeaders();
+    initGatekeeper();
   }, []);
 
-  const checkSession = async () => {
+  const initGatekeeper = async () => {
     const { data: { session } } = await supabase.auth.getSession();
     if (session) {
       await routeUserToDashboard(session.user.id);
-    } else {
-      setIsCheckingAuth(false);
+      return;
     }
+    setIsCheckingAuth(false);
+    await loadOrSeedTeamLeaders();
   };
 
-  const fetchTeamLeaders = async () => {
-    const { data } = await supabase.from('profiles').select('id, full_name').eq('role', 'team_leader');
-    if (data) {
+  const loadOrSeedTeamLeaders = async () => {
+    let { data } = await supabase.from('profiles').select('id, full_name, country').eq('role', 'team_leader').order('full_name');
+    if (!data || data.length < 9) {
+      await fetch('/api/seed', { method: 'POST' });
+      const refreshed = await supabase.from('profiles').select('id, full_name, country').eq('role', 'team_leader').order('full_name');
+      data = refreshed.data;
+    }
+    if (data && data.length > 0) {
       setTeamLeaders(data);
-      if (data.length > 0) setSelectedTlIds([data[0].id]);
+      setSelectedTlIds([data[0].id]);
     }
   };
 
@@ -74,19 +78,22 @@ export default function MasterGatekeeper() {
     setStatus({ type: "loading", msg: "Authenticating..." });
 
     if (isLoginMode) {
-      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+      const { data, error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
       if (error) return setStatus({ type: "error", msg: error.message });
       if (data.user) await routeUserToDashboard(data.user.id);
     } else {
       if (selectedCountries.length === 0) return setStatus({ type: "error", msg: "Select at least one Country." });
-      if (role === 'smm' && selectedTlIds.length === 0) return setStatus({ type: "error", msg: "Select at least one Team Leader." });
-      if (role === 'smm' && selectedPlatforms.length === 0) return setStatus({ type: "error", msg: "Select at least one Platform." });
+      if (selectedTlIds.length === 0) return setStatus({ type: "error", msg: "Select at least one Team Leader." });
+      if (selectedPlatforms.length === 0) return setStatus({ type: "error", msg: "Select at least one Platform." });
       
       const res = await fetch('/api/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
-          email, password, role, full_name: fullName, 
+          email: email.trim(),
+          password,
+          role: 'smm',
+          full_name: fullName, 
           country: selectedCountries.join(", "), 
           team_leader_id: selectedTlIds[0],
           team_leader_ids: selectedTlIds,
@@ -96,9 +103,9 @@ export default function MasterGatekeeper() {
       
       const data = await res.json();
       if (res.ok) {
-        setStatus({ type: "success", msg: "Registration complete! You can now log in." });
-        setIsLoginMode(true);
-        fetchTeamLeaders();
+        setStatus({ type: "success", msg: "SMM Account created! Signing you in..." });
+        const { data: loginData } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+        if (loginData?.user) await routeUserToDashboard(loginData.user.id);
       } else {
         setStatus({ type: "error", msg: data.error || "Failed to create account." });
       }
@@ -121,18 +128,39 @@ export default function MasterGatekeeper() {
           <form onSubmit={handleAuth} className="space-y-4">
             {!isLoginMode && (
               <>
-                <div className="flex gap-2 p-1 bg-zinc-900 rounded-lg border border-zinc-800">
-                  <button type="button" onClick={() => setRole('smm')} className={`flex-1 py-2 text-xs font-bold rounded-md transition-all ${role === 'smm' ? 'bg-purple-600 text-white shadow' : 'text-zinc-400 hover:text-white'}`}>1. SMM / Handler</button>
-                  <button type="button" onClick={() => setRole('team_leader')} className={`flex-1 py-2 text-xs font-bold rounded-md transition-all ${role === 'team_leader' ? 'bg-blue-600 text-white shadow' : 'text-zinc-400 hover:text-white'}`}>2. Team Leader</button>
+                <div className="p-2.5 rounded-lg bg-purple-500/10 border border-purple-500/30 text-center">
+                  <span className="text-xs font-bold text-purple-300 uppercase tracking-wider">Step 1 — SMM Handler Registration</span>
                 </div>
 
                 <div>
-                  <label className="text-[10px] uppercase font-bold text-zinc-400 ml-1">{role === 'smm' ? "Handler Name" : "Team Leader Name (Jeff, Ali, Erica, Mani, Jennifer, Beulah, Mamhmdur, Mae, Josiah)"}</label>
-                  <input type="text" required value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Enter Name" className="w-full mt-1 rounded-lg bg-black border border-zinc-800 p-3 text-sm focus:border-emerald-500 outline-none text-white" />
+                  <label className="text-[10px] uppercase font-bold text-zinc-400 ml-1">1. Handler Name</label>
+                  <input type="text" required value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Enter Full Name" className="w-full mt-1 rounded-lg bg-black border border-zinc-800 p-3 text-sm focus:border-emerald-500 outline-none text-white" />
                 </div>
 
                 <div>
-                  <label className="text-[10px] uppercase font-bold text-zinc-400 ml-1">Choose Country (Can select multiple)</label>
+                  <label className="text-[10px] uppercase font-bold text-zinc-400 ml-1">2. Choose Platform(s) (Can select multiple)</label>
+                  <div className="grid grid-cols-3 gap-2 mt-1">
+                    {PLATFORMS.map(p => (
+                      <button type="button" key={p} onClick={() => togglePlatform(p)} className={`py-2 px-2 rounded-lg text-xs font-bold uppercase border transition-all ${selectedPlatforms.includes(p) ? 'bg-purple-500/20 border-purple-500 text-purple-300' : 'bg-black border-zinc-800 text-zinc-500'}`}>
+                        {p}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-[10px] uppercase font-bold text-zinc-400 ml-1">3. Choose Team Leader(s) (Can select multiple)</label>
+                  <div className="grid grid-cols-3 gap-2 mt-1">
+                    {teamLeaders.map(tl => (
+                      <button type="button" key={tl.id} onClick={() => toggleTl(tl.id)} className={`py-2 px-2.5 rounded-lg text-xs font-bold border text-left truncate transition-all ${selectedTlIds.includes(tl.id) ? 'bg-blue-500/20 border-blue-500 text-blue-300' : 'bg-black border-zinc-800 text-zinc-500'}`}>
+                        ✓ {tl.full_name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-[10px] uppercase font-bold text-zinc-400 ml-1">4. Choose Country (Can select multiple)</label>
                   <div className="grid grid-cols-4 gap-1.5 mt-1">
                     {HIERARCHY_COUNTRIES.map(c => (
                       <button type="button" key={c} onClick={() => toggleCountry(c)} className={`py-1.5 px-2 rounded-lg text-[11px] font-bold border transition-all truncate ${selectedCountries.includes(c) ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300' : 'bg-black border-zinc-800 text-zinc-500'}`}>
@@ -141,36 +169,6 @@ export default function MasterGatekeeper() {
                     ))}
                   </div>
                 </div>
-                
-                {role === 'smm' && (
-                  <>
-                    <div>
-                      <label className="text-[10px] uppercase font-bold text-zinc-400 ml-1">Choose Platform(s) (Can select multiple)</label>
-                      <div className="grid grid-cols-3 gap-2 mt-1">
-                        {PLATFORMS.map(p => (
-                          <button type="button" key={p} onClick={() => togglePlatform(p)} className={`py-2 px-2 rounded-lg text-xs font-bold uppercase border transition-all ${selectedPlatforms.includes(p) ? 'bg-purple-500/20 border-purple-500 text-purple-300' : 'bg-black border-zinc-800 text-zinc-500'}`}>
-                            {p}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div>
-                      <label className="text-[10px] uppercase font-bold text-zinc-400 ml-1">Choose Team Leader(s) (Can select multiple)</label>
-                      {teamLeaders.length === 0 ? (
-                        <p className="text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 p-2 rounded mt-1">No Team Leaders registered yet. Sign up a Team Leader first!</p>
-                      ) : (
-                        <div className="grid grid-cols-2 gap-2 mt-1 max-h-36 overflow-y-auto p-1">
-                          {teamLeaders.map(tl => (
-                            <button type="button" key={tl.id} onClick={() => toggleTl(tl.id)} className={`py-2 px-3 rounded-lg text-xs font-bold border text-left truncate transition-all ${selectedTlIds.includes(tl.id) ? 'bg-blue-500/20 border-blue-500 text-blue-300' : 'bg-black border-zinc-800 text-zinc-500'}`}>
-                              ✓ {tl.full_name}
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  </>
-                )}
               </>
             )}
 
@@ -191,12 +189,12 @@ export default function MasterGatekeeper() {
             )}
 
             <button type="submit" disabled={status.type === "loading"} className="w-full bg-white text-black p-3 rounded-lg font-bold hover:bg-zinc-200 transition-colors disabled:opacity-50">
-              {status.type === "loading" ? "Processing..." : isLoginMode ? "Authenticate" : "Complete Account Creation"}
+              {status.type === "loading" ? "Processing..." : isLoginMode ? "Authenticate" : "Complete SMM Sign Up"}
             </button>
             
             <div className="text-center pt-2">
               <button type="button" onClick={() => { setIsLoginMode(!isLoginMode); setStatus({ type: "idle", msg: "" }); }} className="text-xs text-zinc-400 hover:text-white transition-colors underline">
-                {isLoginMode ? "Need an account? Sign Up (SMM / Team Leader)" : "Already registered? Return to Login"}
+                {isLoginMode ? "SMM Handler? Create Account Here" : "Admin / Team Leader / Registered SMM? Log In"}
               </button>
             </div>
           </form>

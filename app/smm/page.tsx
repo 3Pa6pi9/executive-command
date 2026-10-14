@@ -4,11 +4,7 @@ import { useState, useEffect } from "react";
 import { managerSupabase as supabase } from "@/lib/supabase";
 
 const PLATFORMS = ["twitter", "instagram", "facebook", "tiktok", "blog", "medium"];
-const COUNTRY_LANG_OPTIONS = [
-  "Ethiopia - Amharic", "Ethiopia - English", "Kenya - English", "Kenya - Swahili",
-  "Nigeria - English", "Ghana - English", "South Africa - English", "UAE - Arabic",
-  "UAE - English", "Global - English", "Global - French", "Global - Arabic"
-];
+const COUNTRY_LANG_OPTIONS = ["UK", "Malaysia", "Russia", "Belurus", "Romania", "France", "Afghan", "Crotia", "SA", "Serbia", "New Serbia", "Germany", "Kosavo", "Greece", "Hungary", "Africa"];
 
 export default function SMMDashboard() {
   const [profile, setProfile] = useState<any>(null);
