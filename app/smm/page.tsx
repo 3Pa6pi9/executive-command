@@ -54,7 +54,7 @@ export default function SMMDashboard() {
     if (!session) { window.location.href = "/"; return; }
 
     const { data: prof } = await supabase.from("profiles").select("*").eq("id", session.user.id).single();
-    if (!prof) return;
+    if (!prof || prof.role !== "smm") { await supabase.auth.signOut(); window.location.href = "/"; return; }
     setProfile(prof);
 
     const { data: tls } = await supabase.from("profiles").select("id, full_name").eq("role", "team_leader");
