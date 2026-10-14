@@ -228,7 +228,7 @@ export default function TeamLeaderPortal() {
             <p className="text-xs text-zinc-400">Assigned Countries: {tlProfile.country} • Squad SMMs: {squadMembers.length} • Assets: {squadAssets.length}</p>
           </div>
           <div className="flex gap-3">
-            <button onClick={() => setShowGiveModal(!showGiveModal)} className="px-4 py-2 bg-emerald-500 text-black font-bold rounded-lg text-xs hover:bg-emerald-400">+ Give Account to Manager</button>
+            <button onClick={() => setShowGiveModal(!showGiveModal)} className="px-4 py-2 bg-emerald-500 text-black font-bold rounded-lg text-xs hover:bg-emerald-400">+ Give Asset to Manager</button>
             <button onClick={async () => { await supabase.auth.signOut(); setTlProfile(null); }} className="px-4 py-2 bg-zinc-900 border border-zinc-800 rounded-lg text-xs text-zinc-400 hover:text-red-400">Sign Out</button>
           </div>
         </div>
@@ -237,7 +237,7 @@ export default function TeamLeaderPortal() {
 
         {showGiveModal && (
           <form onSubmit={handleGiveAsset} className="bg-zinc-950 border border-emerald-500/40 p-6 rounded-xl space-y-4">
-            <h3 className="text-sm font-bold text-emerald-400 uppercase">Give / Assign Social Media Account to Squad Manager</h3>
+            <h3 className="text-sm font-bold text-emerald-400 uppercase">Give / Assign Asset to Squad Manager</h3>
             <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
               <select value={assignSmmId} onChange={(e) => setAssignSmmId(e.target.value)} className="rounded-lg bg-black border border-zinc-800 p-2.5 text-sm text-white">
                 {squadMembers.map(m => <option key={m.id} value={m.id}>{m.full_name}</option>)}
@@ -245,9 +245,9 @@ export default function TeamLeaderPortal() {
               <select value={assignPlatform} onChange={(e) => setAssignPlatform(e.target.value)} className="rounded-lg bg-black border border-zinc-800 p-2.5 text-sm text-white uppercase">
                 {PLATFORMS.map(p => <option key={p} value={p}>{p}</option>)}
               </select>
-              <input type="text" required value={assignAccountId} onChange={(e) => setAssignAccountId(e.target.value)} placeholder="Account ID / @Handle" className="rounded-lg bg-black border border-zinc-800 p-2.5 text-sm text-white" />
-              <input type="url" required value={assignLink} onChange={(e) => setAssignLink(e.target.value)} placeholder="Profile Link" className="rounded-lg bg-black border border-zinc-800 p-2.5 text-sm text-white" />
-              <input type="text" required value={assignPass} onChange={(e) => setAssignPass(e.target.value)} placeholder="Account Password" className="rounded-lg bg-black border border-zinc-800 p-2.5 text-sm text-white" />
+              <input type="text" required value={assignAccountId} onChange={(e) => setAssignAccountId(e.target.value)} placeholder="Asset ID / @Handle" className="rounded-lg bg-black border border-zinc-800 p-2.5 text-sm text-white" />
+              <input type="url" required value={assignLink} onChange={(e) => setAssignLink(e.target.value)} placeholder="Asset Profile Link" className="rounded-lg bg-black border border-zinc-800 p-2.5 text-sm text-white" />
+              <input type="text" required value={assignPass} onChange={(e) => setAssignPass(e.target.value)} placeholder="Asset Password" className="rounded-lg bg-black border border-zinc-800 p-2.5 text-sm text-white" />
             </div>
             <button type="submit" className="px-6 py-2 bg-emerald-500 text-black font-bold rounded-lg text-xs">Confirm Assignment</button>
           </form>
