@@ -3,7 +3,15 @@
 import { useState, useEffect } from "react";
 import { managerSupabase as supabase } from "@/lib/supabase";
 import Link from "next/link";
-import { PLATFORMS, ALL_COUNTRIES, parseBulkRows } from "@/lib/constants";
+import {
+  PLATFORMS,
+  ALL_COUNTRIES,
+  TimeHorizon,
+  parseBulkRows,
+  aggregateMetricsByHorizon,
+  exportHorizonCSV,
+  computeAchievements
+} from "@/lib/constants";
 
 export default function TeamLeaderPortal() {
   const [tlProfile, setTlProfile] = useState<any>(null);
@@ -19,8 +27,17 @@ export default function TeamLeaderPortal() {
   const [squadAssets, setSquadAssets] = useState<any[]>([]);
   const [squadMetrics, setSquadMetrics] = useState<any[]>([]);
   const [statusMsg, setStatusMsg] = useState("");
-  const [activeTab, setActiveTab] = useState<"squad" | "assets" | "bulk">("squad");
+  const [activeTab, setActiveTab] = useState<"squad" | "graphs" | "achievements" | "assets" | "bulk">("squad");
   const [searchQuery, setSearchQuery] = useState("");
+  const [csvHorizon, setCsvHorizon] = useState<TimeHorizon>("weekly");
+
+  // Settings Drawer State
+  const [showSettings, setShowSettings] = useState(false);
+  const [setFullName, setSetFullName] = useState("");
+  const [setCountries, setSetCountries] = useState<string[]>([]);
+  const [newPassword, setNewPassword] = useState("");
+  const [broadcastCampaign, setBroadcastCampaign] = useState("");
+  const [broadcastTask, setBroadcastTask] = useState("");
 
   // Squad SMM CRUD Modals
   const [showCreateSmmModal, setShowCreateSmmModal] = useState(false);
@@ -43,7 +60,6 @@ export default function TeamLeaderPortal() {
   const [assignCountry, setAssignCountry] = useState("Ethiopia");
   const [assignProject, setAssignProject] = useState("General Campaign");
 
-  // Bulk Data Entry State (Squad Assets or Squad SMMs)
   const [bulkType, setBulkType] = useState<"assets" | "smms">("assets");
   const [bulkRawText, setBulkRawText] = useState("");
 
@@ -78,6 +94,8 @@ export default function TeamLeaderPortal() {
       return null;
     }
     setTlProfile(prof);
+    setSetFullName(prof.full_name || "");
+    setSetCountries((prof.country || "Ethiopia").split(",").map((c: string) => c.trim()).filter(Boolean));
     setIsCheckingAuth(false);
     await loadSquadData(prof.id);
     return prof.id;
@@ -95,6 +113,8 @@ export default function TeamLeaderPortal() {
       return setAuthMsg("Security Block: Team Leader clearance required.");
     }
     setTlProfile(prof);
+    setSetFullName(prof.full_name || "");
+    setSetCountries((prof.country || "Ethiopia").split(",").map((c: string) => c.trim()).filter(Boolean));
     await loadSquadData(prof.id);
   };
 
@@ -109,6 +129,53 @@ export default function TeamLeaderPortal() {
 
     const { data: metrics } = await supabase.from("weekly_metrics").select("*").order("week_of", { ascending: false });
     setSquadMetrics(metrics || []);
+  };
+
+  const handleSaveTLSettings = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await fetch("/api/crud", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        actorId: tlProfile.id,
+        entity: "profile",
+        action: "update",
+        payload: {
+          targetId: tlProfile.id,
+          full_name: setFullName,
+          country: setCountries.join(", "),
+          newPassword
+        }
+      })
+    });
+    setNewPassword("");
+    setShowSettings(false);
+    setStatusMsg("✓ Commander Settings Synced Live!");
+    await verifyTeamLeaderSession();
+  };
+
+  const handleBatchSquadLock = async (lockState: boolean) => {
+    const smmIds = squadMembers.map(s => s.id);
+    await fetch("/api/settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "batch_lock", payload: { smmIds, is_locked: lockState } })
+    });
+    setStatusMsg(`All ${smmIds.length} Squad Managers are now ${lockState ? "LOCKED 🔒" : "UNLOCKED 🔓"} live!`);
+  };
+
+  const handleBroadcastDirective = async () => {
+    const assetIds = squadAssets.map(a => a.id);
+    await fetch("/api/settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "broadcast_directive",
+        payload: { assetIds, tl_campaign: broadcastCampaign, tl_task: broadcastTask }
+      })
+    });
+    setBroadcastCampaign(""); setBroadcastTask("");
+    setStatusMsg(`📢 Broadcasted directive across ${assetIds.length} Squad Assets!`);
   };
 
   // SQUAD SMM CRUD
@@ -220,7 +287,7 @@ export default function TeamLeaderPortal() {
     await loadSquadData(tlProfile.id);
   };
 
-  // BULK ENTRY FOR TEAM LEADER
+  // BULK ENTRY
   const handleTlBulkImport = async (e: React.FormEvent) => {
     e.preventDefault();
     const rows = parseBulkRows(bulkRawText);
@@ -303,16 +370,19 @@ export default function TeamLeaderPortal() {
   const filteredAssets = selectedSmm ? squadAssets.filter(a => a.smm_id === selectedSmm) : squadAssets;
   const q = searchQuery.toLowerCase().trim();
 
+  const horizonRows = aggregateMetricsByHorizon(squadMetrics, csvHorizon);
+  const squadAchievements = computeAchievements(squadAssets, squadMetrics);
+
   return (
     <div className="min-h-screen bg-black text-zinc-100 p-4 md:p-8 font-sans">
       <div className="max-w-7xl mx-auto space-y-6">
         
-        {/* Header */}
+        {/* Header with Multi-Horizon CSV & Settings */}
         <div className="flex flex-wrap justify-between items-center border-b border-zinc-800 pb-5 gap-4">
           <div>
             <div className="flex items-center gap-2">
               <span className="text-[10px] uppercase tracking-widest bg-blue-500/20 text-blue-300 border border-blue-500/30 px-2.5 py-1 rounded-full font-bold">
-                Tier 2 — Squad Command CRUD
+                Tier 2 — Squad Command CRUD & Analytics
               </span>
               <span className={`text-[10px] font-mono px-2.5 py-1 rounded-full border flex items-center gap-1.5 transition-all ${liveSyncPulse ? "bg-emerald-500/30 border-emerald-400 text-emerald-300 scale-105" : "bg-zinc-900 border-zinc-800 text-emerald-400"}`}>
                 <span className="h-2 w-2 rounded-full bg-emerald-400 animate-ping"></span>
@@ -322,14 +392,33 @@ export default function TeamLeaderPortal() {
             <h1 className="text-3xl font-bold text-white mt-2">Commander {tlProfile.full_name}</h1>
             <p className="text-xs text-zinc-400">Countries: {tlProfile.country} • Squad SMMs: {squadMembers.length} • Squad Assets: {squadAssets.length}</p>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <button onClick={() => setShowCreateSmmModal(true)} className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg text-xs">
-              + Onboard Squad SMM
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Multi-Horizon Squad CSV Exporter */}
+            <div className="flex items-center bg-zinc-950 border border-blue-500/40 rounded-lg p-1 gap-1">
+              <select value={csvHorizon} onChange={(e) => setCsvHorizon(e.target.value as TimeHorizon)} className="bg-black text-blue-300 text-xs font-bold px-2 py-1.5 rounded outline-none uppercase">
+                <option value="weekly">📅 Weekly CSV</option>
+                <option value="monthly">📆 Monthly CSV</option>
+                <option value="quarterly">📊 Quarterly CSV</option>
+                <option value="yearly">📈 Yearly CSV</option>
+              </select>
+              <button
+                onClick={() => exportHorizonCSV({ horizon: csvHorizon, metrics: squadMetrics, assets: squadAssets, profiles: [tlProfile, ...squadMembers], scopeLabel: `Squad_${tlProfile.full_name}` })}
+                className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded text-xs"
+              >
+                ⬇ Export {csvHorizon.toUpperCase()}
+              </button>
+            </div>
+
+            <button onClick={() => setShowCreateSmmModal(true)} className="px-3.5 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg text-xs">
+              + Onboard SMM
             </button>
-            <button onClick={() => setShowGiveModal(true)} className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-black font-bold rounded-lg text-xs">
-              + Create / Hand Over Asset
+            <button onClick={() => setShowGiveModal(true)} className="px-3.5 py-2 bg-emerald-500 hover:bg-emerald-400 text-black font-bold rounded-lg text-xs">
+              + Give Asset
             </button>
-            <button onClick={async () => { await supabase.auth.signOut(); setTlProfile(null); }} className="px-4 py-2 bg-zinc-900 border border-zinc-800 rounded-lg text-xs text-zinc-400 hover:text-red-400">
+            <button onClick={() => setShowSettings(true)} className="px-3.5 py-2 bg-zinc-900 border border-zinc-700 hover:border-blue-500 text-blue-300 font-bold rounded-lg text-xs">
+              ⚙ Settings
+            </button>
+            <button onClick={async () => { await supabase.auth.signOut(); setTlProfile(null); }} className="px-3.5 py-2 bg-zinc-900 border border-zinc-800 rounded-lg text-xs text-zinc-400 hover:text-red-400">
               Sign Out
             </button>
           </div>
@@ -337,17 +426,23 @@ export default function TeamLeaderPortal() {
 
         {statusMsg && <div className="p-3 rounded-lg bg-blue-500/10 border border-blue-500/30 text-blue-300 text-xs text-center font-bold">{statusMsg}</div>}
 
-        {/* Mode Switcher & Search */}
+        {/* 5-Tab Bar & Search */}
         <div className="flex flex-wrap justify-between items-center gap-3 bg-zinc-950 border border-zinc-800 p-3 rounded-2xl">
-          <div className="flex gap-2">
-            <button onClick={() => setActiveTab("squad")} className={`px-4 py-2 rounded-xl text-xs font-bold ${activeTab === "squad" ? "bg-blue-600 text-white" : "bg-zinc-900 text-zinc-400"}`}>
-              👥 Squad SMMs CRUD ({squadMembers.length})
+          <div className="flex flex-wrap gap-1.5">
+            <button onClick={() => setActiveTab("squad")} className={`px-3.5 py-2 rounded-xl text-xs font-bold ${activeTab === "squad" ? "bg-blue-600 text-white" : "bg-zinc-900 text-zinc-400"}`}>
+              👥 Squad SMMs ({squadMembers.length})
             </button>
-            <button onClick={() => setActiveTab("assets")} className={`px-4 py-2 rounded-xl text-xs font-bold ${activeTab === "assets" ? "bg-purple-600 text-white" : "bg-zinc-900 text-zinc-400"}`}>
-              🗂 Squad Assets CRUD ({squadAssets.length})
+            <button onClick={() => setActiveTab("graphs")} className={`px-3.5 py-2 rounded-xl text-xs font-bold ${activeTab === "graphs" ? "bg-cyan-400 text-black" : "bg-zinc-900 text-cyan-300 border border-cyan-500/30"}`}>
+              📈 Summary Graphs
             </button>
-            <button onClick={() => setActiveTab("bulk")} className={`px-4 py-2 rounded-xl text-xs font-bold ${activeTab === "bulk" ? "bg-amber-500 text-black" : "bg-zinc-900 text-amber-400 border border-amber-500/30"}`}>
-              ⚡ Bulk Data Entry
+            <button onClick={() => setActiveTab("achievements")} className={`px-3.5 py-2 rounded-xl text-xs font-bold ${activeTab === "achievements" ? "bg-yellow-400 text-black" : "bg-zinc-900 text-yellow-300 border border-yellow-500/30"}`}>
+              🏆 Squad Achievements
+            </button>
+            <button onClick={() => setActiveTab("assets")} className={`px-3.5 py-2 rounded-xl text-xs font-bold ${activeTab === "assets" ? "bg-purple-600 text-white" : "bg-zinc-900 text-zinc-400"}`}>
+              🗂 Squad Assets ({squadAssets.length})
+            </button>
+            <button onClick={() => setActiveTab("bulk")} className={`px-3.5 py-2 rounded-xl text-xs font-bold ${activeTab === "bulk" ? "bg-amber-500 text-black" : "bg-zinc-900 text-amber-400 border border-amber-500/30"}`}>
+              ⚡ Bulk Entry
             </button>
           </div>
           <input
@@ -406,7 +501,91 @@ export default function TeamLeaderPortal() {
           </div>
         )}
 
-        {/* TAB 2: ALL SQUAD ASSETS CRUD */}
+        {/* TAB 2: SQUAD SUMMARY GRAPHS */}
+        {activeTab === "graphs" && (
+          <div className="space-y-6">
+            <div className="flex flex-wrap justify-between items-center bg-zinc-950 border border-cyan-500/30 p-4 rounded-2xl">
+              <h2 className="text-lg font-bold text-white">📈 Squad Summary Graphs ({csvHorizon.toUpperCase()} Rollup)</h2>
+              <div className="flex gap-2">
+                {(["weekly", "monthly", "quarterly", "yearly"] as TimeHorizon[]).map(h => (
+                  <button key={h} onClick={() => setCsvHorizon(h)} className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase ${csvHorizon === h ? "bg-cyan-400 text-black" : "bg-black text-zinc-400"}`}>
+                    {h}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <div className="bg-zinc-950 border border-zinc-800 rounded-2xl p-6 space-y-3">
+                <h3 className="text-xs font-bold uppercase text-cyan-400">SMM Handler Comparative Output</h3>
+                {squadMembers.map(smm => {
+                  const sAssets = squadAssets.filter(a => a.smm_id === smm.id);
+                  const sImpr = squadMetrics.filter(m => sAssets.some(a => a.id === m.asset_id)).reduce((s, x) => s + Number(x.impressions || 0), 0);
+                  const maxS = Math.max(1000, ...squadMembers.map(m => squadMetrics.filter(log => squadAssets.filter(a => a.smm_id === m.id).some(a => a.id === log.asset_id)).reduce((s, x) => s + Number(x.impressions || 0), 0)));
+                  const w = Math.min(100, Math.max(5, Math.round((sImpr / maxS) * 100)));
+                  return (
+                    <div key={smm.id} className="space-y-1">
+                      <div className="flex justify-between text-xs font-mono">
+                        <span className="text-white font-bold">{smm.full_name} ({sAssets.length} Assets)</span>
+                        <span className="text-cyan-300">{sImpr.toLocaleString()} Impr</span>
+                      </div>
+                      <div className="w-full h-3 bg-zinc-900 rounded-full overflow-hidden p-0.5">
+                        <div className="h-full rounded-full bg-gradient-to-r from-blue-500 to-cyan-400" style={{ width: `${w}%` }}></div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="bg-zinc-950 border border-zinc-800 rounded-2xl p-6 space-y-3">
+                <h3 className="text-xs font-bold uppercase text-purple-400">{csvHorizon.toUpperCase()} Aggregated Asset Table</h3>
+                <div className="max-h-64 overflow-y-auto">
+                  <table className="w-full text-left text-xs font-mono text-zinc-300">
+                    <thead className="bg-zinc-900 text-zinc-400">
+                      <tr>
+                        <th className="p-2">Period</th>
+                        <th className="p-2">Impr</th>
+                        <th className="p-2">Eng</th>
+                        <th className="p-2">Posts</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-zinc-800">
+                      {horizonRows.slice(0, 15).map(r => (
+                        <tr key={r.id}>
+                          <td className="p-2 text-white font-bold">{r.period}</td>
+                          <td className="p-2 text-blue-400">{r.impressions.toLocaleString()}</td>
+                          <td className="p-2 text-purple-400">{r.engagements.toLocaleString()}</td>
+                          <td className="p-2">{r.posts_published}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 3: SQUAD ACHIEVEMENTS */}
+        {activeTab === "achievements" && (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {squadAchievements.map(ach => (
+              <div key={ach.id} className={`rounded-2xl p-5 border ${ach.unlocked ? "bg-gradient-to-b from-yellow-950/30 to-zinc-950 border-yellow-500/60" : "bg-zinc-950 border-zinc-800 opacity-75"}`}>
+                <div className="flex justify-between items-center">
+                  <span className="text-3xl">{ach.icon}</span>
+                  <span className={`text-[10px] font-bold uppercase px-2.5 py-0.5 rounded-full ${ach.unlocked ? "bg-yellow-400 text-black" : "bg-zinc-900 text-zinc-500"}`}>
+                    {ach.unlocked ? "✓ UNLOCKED" : `${ach.progress}%`}
+                  </span>
+                </div>
+                <h3 className="text-base font-bold text-white mt-3">{ach.title}</h3>
+                <p className="text-xs text-zinc-400 mt-1">{ach.desc}</p>
+                <div className="mt-3 text-xs font-mono text-yellow-300">{ach.stat}</div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* TAB 4: ALL SQUAD ASSETS CRUD */}
         {activeTab === "assets" && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {squadAssets.filter(a => !q || (a.account_id || "").toLowerCase().includes(q) || (a.email || "").toLowerCase().includes(q)).map(asset => (
@@ -421,33 +600,17 @@ export default function TeamLeaderPortal() {
           </div>
         )}
 
-        {/* TAB 3: BULK DATA ENTRY FOR SQUAD */}
+        {/* TAB 5: BULK DATA ENTRY */}
         {activeTab === "bulk" && (
           <form onSubmit={handleTlBulkImport} className="bg-zinc-950 border border-amber-500/40 rounded-2xl p-6 space-y-4">
             <div className="flex justify-between items-center">
               <h3 className="text-lg font-bold text-white">⚡ Squad Bulk Data Importer</h3>
               <div className="flex gap-2">
-                <button type="button" onClick={() => setBulkType("assets")} className={`px-3 py-1.5 rounded-lg text-xs font-bold ${bulkType === "assets" ? "bg-amber-500 text-black" : "bg-zinc-900 text-zinc-400"}`}>
-                  Bulk Hand Over Assets
-                </button>
-                <button type="button" onClick={() => setBulkType("smms")} className={`px-3 py-1.5 rounded-lg text-xs font-bold ${bulkType === "smms" ? "bg-amber-500 text-black" : "bg-zinc-900 text-zinc-400"}`}>
-                  Bulk Onboard Squad SMMs
-                </button>
+                <button type="button" onClick={() => setBulkType("assets")} className={`px-3 py-1.5 rounded-lg text-xs font-bold ${bulkType === "assets" ? "bg-amber-500 text-black" : "bg-zinc-900 text-zinc-400"}`}>Bulk Hand Over Assets</button>
+                <button type="button" onClick={() => setBulkType("smms")} className={`px-3 py-1.5 rounded-lg text-xs font-bold ${bulkType === "smms" ? "bg-amber-500 text-black" : "bg-zinc-900 text-zinc-400"}`}>Bulk Onboard Squad SMMs</button>
               </div>
             </div>
-            <p className="text-xs font-mono text-amber-300">
-              {bulkType === "assets"
-                ? "Format per line: Asset_ID, Asset_Password, Email, Email_Password, Profile_Link, Country, Platform, Project"
-                : "Format per line: Full_Name, Email, Password, Country"}
-            </p>
-            <textarea
-              rows={7}
-              required
-              value={bulkRawText}
-              onChange={(e) => setBulkRawText(e.target.value)}
-              placeholder="Paste rows from Excel/Google Sheets or CSV..."
-              className="w-full rounded-xl bg-black border border-zinc-800 p-4 text-xs font-mono text-white"
-            />
+            <textarea rows={7} required value={bulkRawText} onChange={(e) => setBulkRawText(e.target.value)} placeholder="Paste rows from Excel/Google Sheets or CSV..." className="w-full rounded-xl bg-black border border-zinc-800 p-4 text-xs font-mono text-white" />
             <button type="submit" className="w-full py-3 bg-amber-500 text-black font-bold rounded-xl text-xs">
               ⚡ Execute Squad Bulk Import ({parseBulkRows(bulkRawText).length} Rows)
             </button>
@@ -455,6 +618,58 @@ export default function TeamLeaderPortal() {
         )}
 
       </div>
+
+      {/* SLIDE-OVER SQUAD & COMMANDER SETTINGS DRAWER */}
+      {showSettings && (
+        <div className="fixed inset-0 z-50 flex justify-end bg-black/75 backdrop-blur-sm" onClick={() => setShowSettings(false)}>
+          <div onClick={(e) => e.stopPropagation()} className="w-full max-w-lg bg-zinc-950 border-l border-blue-500/40 h-full overflow-y-auto p-6 space-y-6 shadow-2xl">
+            <div className="flex justify-between items-center border-b border-zinc-800 pb-4">
+              <div>
+                <span className="text-[10px] uppercase font-bold text-blue-400">Tier 2 Configuration</span>
+                <h2 className="text-xl font-bold text-white">Squad & Commander Settings</h2>
+              </div>
+              <button type="button" onClick={() => setShowSettings(false)} className="px-3 py-1 rounded bg-zinc-900 text-xs text-zinc-400">✕ Close</button>
+            </div>
+
+            <div className="p-4 bg-black border border-zinc-800 rounded-xl space-y-2">
+              <div className="text-xs font-bold uppercase text-blue-400">Batch Squad Metric Lock</div>
+              <div className="grid grid-cols-2 gap-2">
+                <button type="button" onClick={() => handleBatchSquadLock(true)} className="py-2 bg-red-500/20 border border-red-500/40 text-red-400 font-bold rounded text-xs">🔒 Lock All Squad SMMs</button>
+                <button type="button" onClick={() => handleBatchSquadLock(false)} className="py-2 bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 font-bold rounded text-xs">🔓 Unlock All Squad SMMs</button>
+              </div>
+            </div>
+
+            <div className="p-4 bg-black border border-blue-500/30 rounded-xl space-y-3">
+              <h3 className="text-xs font-bold uppercase text-blue-400">📢 Broadcast Directive to All Squad Assets ({squadAssets.length})</h3>
+              <input type="text" value={broadcastCampaign} onChange={(e) => setBroadcastCampaign(e.target.value)} placeholder="Global Squad Campaign Name" className="w-full rounded bg-zinc-950 border border-zinc-800 p-2 text-xs text-white" />
+              <input type="text" value={broadcastTask} onChange={(e) => setBroadcastTask(e.target.value)} placeholder="Global Weekly Squad Task" className="w-full rounded bg-zinc-950 border border-zinc-800 p-2 text-xs text-white" />
+              <button type="button" onClick={handleBroadcastDirective} className="w-full py-2 bg-blue-600 text-white font-bold rounded text-xs">Push Directive Live</button>
+            </div>
+
+            <form onSubmit={handleSaveTLSettings} className="space-y-4 border-t border-zinc-800 pt-4">
+              <div>
+                <label className="text-[10px] uppercase font-bold text-zinc-400">Commander Display Name</label>
+                <input type="text" required value={setFullName} onChange={(e) => setSetFullName(e.target.value)} className="w-full mt-1 rounded-lg bg-black border border-zinc-800 p-2.5 text-xs text-white" />
+              </div>
+              <div>
+                <label className="text-[10px] uppercase font-bold text-zinc-400">Assigned Countries ({setCountries.length})</label>
+                <div className="grid grid-cols-4 gap-1.5 mt-1 max-h-40 overflow-y-auto p-1 bg-black rounded-xl border border-zinc-900">
+                  {ALL_COUNTRIES.map(c => (
+                    <button type="button" key={c} onClick={() => setSetCountries(prev => prev.includes(c) ? prev.filter(x => x !== c) : [...prev, c])} className={`py-1 px-2 rounded text-[11px] font-bold border truncate ${setCountries.includes(c) ? "bg-blue-500/20 border-blue-500 text-blue-300" : "bg-black border-zinc-800 text-zinc-500"}`}>
+                      {c}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label className="text-[10px] uppercase font-bold text-zinc-400">Update Password (Optional)</label>
+                <input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="Leave blank to keep current password" className="w-full mt-1 rounded-lg bg-black border border-zinc-800 p-2.5 text-xs text-white" />
+              </div>
+              <button type="submit" className="w-full py-3 bg-emerald-500 text-black font-bold rounded-xl text-xs">Save Commander Settings</button>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* MODAL: ONBOARD NEW SQUAD SMM */}
       {showCreateSmmModal && (
