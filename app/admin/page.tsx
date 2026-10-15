@@ -1,8 +1,14 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { managerSupabase as supabase } from "@/lib/supabase";
+import { useState, useEffect, useCallback } from "react";
+import { adminSupabase as supabase, broadcastRealtimeSync } from "@/lib/supabase";
 import Link from "next/link";
+
+const HIERARCHY_COUNTRIES = [
+  "UK", "Malaysia", "Russia", "Belurus", "Romania", "France",
+  "Afghan", "Crotia", "SA", "Serbia", "New Serbia", "Germany",
+  "Kosavo", "Greece", "Hungary", "Africa", "Global"
+];
 
 export default function AdminCommandCenter() {
   const [adminProfile, setAdminProfile] = useState<any>(null);
@@ -14,21 +20,76 @@ export default function AdminCommandCenter() {
   const [profiles, setProfiles] = useState<any[]>([]);
   const [assets, setAssets] = useState<any[]>([]);
   const [metrics, setMetrics] = useState<any[]>([]);
-  
+  const [motd, setMotd] = useState("");
+  const [dailyTarget, setDailyTarget] = useState(20);
+  const [lastSyncTime, setLastSyncTime] = useState<string>("Live");
+
   const [selectedTlId, setSelectedTlId] = useState<string | null>(null);
   const [selectedSmmId, setSelectedSmmId] = useState<string | null>(null);
   const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
   const [projectFilter, setProjectFilter] = useState<string>("All");
   const [revealedAssets, setRevealedAssets] = useState<Record<string, boolean>>({});
+  const [showSettingsDrawer, setShowSettingsDrawer] = useState(false);
+  const [settingsTab, setSettingsTab] = useState<"global" | "personnel" | "provision" | "security">("global");
 
-  const [newAdminName, setNewAdminName] = useState("");
-  const [newAdminEmail, setNewAdminEmail] = useState("");
-  const [newAdminPass, setNewAdminPass] = useState("");
+  // Provisioning State
+  const [newRole, setNewRole] = useState<"admin" | "team_leader" | "smm">("admin");
+  const [newName, setNewName] = useState("");
+  const [newEmail, setNewEmail] = useState("");
+  const [newPass, setNewPass] = useState("");
+  const [newCountry, setNewCountry] = useState("Global");
+  const [newTlId, setNewTlId] = useState("");
   const [adminMsg, setAdminMsg] = useState("");
+
+  // Admin Own Security State
+  const [myNewName, setMyNewName] = useState("");
+  const [myNewEmail, setMyNewEmail] = useState("");
+  const [myNewPassword, setMyNewPassword] = useState("");
+  const [ personnelSearch, setPersonnelSearch ] = useState("");
+
+  const loadAllEnterpriseData = useCallback(async () => {
+    const [pRes, aRes, mRes, sRes] = await Promise.all([
+      supabase.from("profiles").select("*").order("created_at", { ascending: false }),
+      supabase.from("social_assets").select("*").order("created_at", { ascending: false }),
+      supabase.from("weekly_metrics").select("*").order("week_of", { ascending: false }),
+      supabase.from("system_settings").select("*").eq("id", 1).maybeSingle(),
+    ]);
+    if (pRes.data) setProfiles(pRes.data);
+    if (aRes.data) setAssets(aRes.data);
+    if (mRes.data) setMetrics(mRes.data);
+    if (sRes.data) {
+      setMotd(sRes.data.motd || "");
+      setDailyTarget(sRes.data.daily_target || 20);
+    }
+    setLastSyncTime(new Date().toLocaleTimeString());
+  }, []);
 
   useEffect(() => {
     verifyAdminSession();
   }, []);
+
+  // Real-time subscription across all tables + broadcast channel
+  useEffect(() => {
+    if (!adminProfile) return;
+
+    const pgChannel = supabase
+      .channel("admin-postgres-live")
+      .on("postgres_changes", { event: "*", schema: "public", table: "profiles" }, () => loadAllEnterpriseData())
+      .on("postgres_changes", { event: "*", schema: "public", table: "social_assets" }, () => loadAllEnterpriseData())
+      .on("postgres_changes", { event: "*", schema: "public", table: "weekly_metrics" }, () => loadAllEnterpriseData())
+      .on("postgres_changes", { event: "*", schema: "public", table: "system_settings" }, () => loadAllEnterpriseData())
+      .subscribe();
+
+    const broadcastChannel = supabase
+      .channel("executive-live-sync")
+      .on("broadcast", { event: "db-sync" }, () => loadAllEnterpriseData())
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(pgChannel);
+      supabase.removeChannel(broadcastChannel);
+    };
+  }, [adminProfile, loadAllEnterpriseData]);
 
   const verifyAdminSession = async () => {
     const { data: { session } } = await supabase.auth.getSession();
@@ -46,6 +107,8 @@ export default function AdminCommandCenter() {
     }
 
     setAdminProfile(prof);
+    setMyNewName(prof.full_name || "");
+    setMyNewEmail(session.user.email || "");
     setIsCheckingAuth(false);
     await loadAllEnterpriseData();
   };
@@ -63,41 +126,132 @@ export default function AdminCommandCenter() {
     }
 
     setAdminProfile(prof);
+    setMyNewName(prof.full_name || "");
+    setMyNewEmail(data.user.email || "");
     await loadAllEnterpriseData();
   };
 
-  const loadAllEnterpriseData = async () => {
-    const { data: p } = await supabase.from("profiles").select("*").order("created_at", { ascending: false });
-    const { data: a } = await supabase.from("social_assets").select("*").order("created_at", { ascending: false });
-    const { data: m } = await supabase.from("weekly_metrics").select("*").order("week_of", { ascending: false });
-    setProfiles(p || []);
-    setAssets(a || []);
-    setMetrics(m || []);
+  const notifyAndReload = async (msg: string) => {
+    setAdminMsg(msg);
+    await loadAllEnterpriseData();
+    await broadcastRealtimeSync("admin");
+    setTimeout(() => setAdminMsg(""), 4000);
   };
 
-  const handleAddAdmin = async (e: React.FormEvent) => {
+  const handleProvisionAccount = async (e: React.FormEvent) => {
     e.preventDefault();
-    setAdminMsg("Provisioning new Admin...");
+    setAdminMsg("Provisioning account...");
     const res = await fetch("/api/register", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        email: newAdminEmail.trim(),
-        password: newAdminPass,
-        role: "admin",
-        full_name: newAdminName,
-        country: "Global"
-      })
+        email: newEmail.trim(),
+        password: newPass,
+        role: newRole,
+        full_name: newName.trim(),
+        country: newCountry,
+        team_leader_id: newRole === "smm" ? newTlId : null,
+        team_leader_ids: newRole === "smm" && newTlId ? [newTlId] : [],
+      }),
     });
     const data = await res.json();
     if (res.ok) {
-      setAdminMsg("Co-Admin Provisioned!");
-      setNewAdminName(""); setNewAdminEmail(""); setNewAdminPass("");
-      loadAllEnterpriseData();
+      setNewName(""); setNewEmail(""); setNewPass("");
+      await notifyAndReload(`✅ Provisioned ${newRole.toUpperCase()} account!`);
     } else {
       setAdminMsg("Error: " + data.error);
     }
   };
+
+  const handleGlobalLockToggle = async (lockState: boolean) => {
+    const res = await fetch("/api/account", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "bulk_lock_smms", is_locked: lockState }),
+    });
+    if (res.ok) {
+      await notifyAndReload(lockState ? "🔒 All SMM metric inputs globally LOCKED." : "🔓 All SMM metric inputs globally UNLOCKED.");
+    }
+  };
+
+  const handleSaveSystemSettings = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const res = await fetch("/api/account", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "update_system_settings", motd, daily_target: dailyTarget }),
+    });
+    if (res.ok) await notifyAndReload("✅ Global broadcast & target settings synced live!");
+  };
+
+  const handleUpdateMySecurity = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await fetch("/api/account", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "update_profile", id: adminProfile.id, full_name: myNewName }),
+    });
+    if (myNewPassword || (myNewEmail && myNewEmail !== email)) {
+      const res = await fetch("/api/account", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "update_auth", id: adminProfile.id, email: myNewEmail, password: myNewPassword }),
+      });
+      const json = await res.json();
+      if (!res.ok) return setAdminMsg("Error: " + json.error);
+    }
+    setMyNewPassword("");
+    setAdminProfile((prev: any) => ({ ...prev, full_name: myNewName }));
+    await notifyAndReload("✅ Admin profile & credentials updated!");
+  };
+
+  const handleUpdateUserRow = async (userId: string, updates: Record<string, any>) => {
+    const res = await fetch("/api/account", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "update_profile", id: userId, ...updates }),
+    });
+    if (res.ok) await notifyAndReload("✅ Personnel profile updated live!");
+  };
+
+  const handleResetUserPassword = async (userId: string, userName: string) => {
+    const newPassword = prompt(`Enter new password (min 6 chars) for ${userName}:`);
+    if (!newPassword || newPassword.length < 6) return;
+    const res = await fetch("/api/account", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "update_auth", id: userId, password: newPassword }),
+    });
+    if (res.ok) await notifyAndReload(`🔑 Password reset for ${userName}!`);
+  };
+
+  const handleDeleteUser = async (userId: string, userName: string) => {
+    if (!confirm(`Permanently terminate ${userName} and remove their account?`)) return;
+    const res = await fetch("/api/account", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "delete_user", id: userId }),
+    });
+    if (res.ok) await notifyAndReload(`🗑 Terminated ${userName}.`);
+  };
+
+  const handleToggleAssetStatus = async (asset: any) => {
+    const newStatus = asset.status === "active" ? "suspended" : "active";
+    await supabase.from("social_assets").update({ status: newStatus }).eq("id", asset.id);
+    await notifyAndReload(`Asset ${asset.account_id} marked ${newStatus.toUpperCase()}`);
+  };
+
+  const handleDeleteAsset = async (assetId: string) => {
+    if (!confirm("Permanently delete this Social Asset from the vault?")) return;
+    await supabase.from("social_assets").delete().eq("id", assetId);
+    if (selectedAssetId === assetId) setSelectedAssetId(null);
+    await notifyAndReload("🗑 Asset deleted from vault.");
+  };
+
+  // Filtered assets based on top campaign filter
+  const projectFilteredAssets = projectFilter === "All"
+    ? assets
+    : assets.filter(a => (a.project_name || "General Campaign") === projectFilter);
 
   const handleExportMasterCSV = () => {
     const headers = [
@@ -108,9 +262,8 @@ export default function AdminCommandCenter() {
     ];
 
     const filteredMetrics = metrics.filter(m => {
-      const asset = assets.find(a => a.id === m.asset_id);
+      const asset = projectFilteredAssets.find(a => a.id === m.asset_id);
       if (!asset) return false;
-      if (projectFilter !== "All" && asset.project_name !== projectFilter) return false;
       if (selectedTlId && asset.team_leader_id !== selectedTlId) return false;
       if (selectedSmmId && asset.smm_id !== selectedSmmId) return false;
       return true;
@@ -125,8 +278,8 @@ export default function AdminCommandCenter() {
       const postsDay = ((m.posts_published || 0) / 7).toFixed(2);
 
       return [
-        `"${asset.project_name || 'General'}"`, `"${tl.full_name || 'Unassigned'}"`, `"${smm.full_name || 'SMM'}"`,
-        `"${asset.platform || ''}"`, `"${asset.account_id || ''}"`, `"${asset.status || ''}"`, `"${asset.profile_link || ''}"`,
+        `"${asset.project_name || "General"}"`, `"${tl.full_name || "Unassigned"}"`, `"${smm.full_name || "SMM"}"`,
+        `"${asset.platform || ""}"`, `"${asset.account_id || ""}"`, `"${asset.status || ""}"`, `"${asset.profile_link || ""}"`,
         `"${m.week_of}"`, m.impressions, m.engagements, m.likes, m.shares_reposts, m.comments,
         m.followers_gained, m.followers_lost, m.total_followers, m.posts_published, m.top_post_impressions,
         engPct, netFol, postsDay
@@ -182,32 +335,49 @@ export default function AdminCommandCenter() {
 
   const activeSmm = allSmms.find(s => s.id === selectedSmmId);
   const displayedAssets = selectedSmmId
-    ? assets.filter(a => a.smm_id === selectedSmmId)
+    ? projectFilteredAssets.filter(a => a.smm_id === selectedSmmId)
     : [];
 
-  const activeAsset = assets.find(a => a.id === selectedAssetId);
+  const activeAsset = projectFilteredAssets.find(a => a.id === selectedAssetId);
   const activeAssetMetrics = selectedAssetId ? metrics.filter(m => m.asset_id === selectedAssetId) : [];
 
   return (
     <div className="min-h-screen bg-black text-zinc-100 p-4 md:p-8 font-sans">
-      <div className="max-w-7xl mx-auto space-y-8">
+      <div className="max-w-7xl mx-auto space-y-6">
         
         {/* Top Executive Bar */}
         <div className="flex flex-wrap justify-between items-center border-b border-zinc-800 pb-6 gap-4">
           <div>
-            <span className="text-[10px] uppercase tracking-widest bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-2.5 py-1 rounded-full font-bold inline-flex items-center gap-2">
-              <span className="h-2 w-2 rounded-full bg-emerald-400 animate-ping"></span>
-              Tier 1 — Executive God Mode
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] uppercase tracking-widest bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-2.5 py-1 rounded-full font-bold inline-flex items-center gap-2">
+                <span className="h-2 w-2 rounded-full bg-emerald-400 animate-ping"></span>
+                Tier 1 — Executive God Mode
+              </span>
+              <span className="text-[10px] font-mono bg-zinc-900 border border-zinc-800 text-emerald-400 px-2.5 py-1 rounded-full">
+                ⚡ LIVE SYNC ({lastSyncTime})
+              </span>
+            </div>
             <h1 className="text-3xl font-bold text-white mt-2">Global Admin Command Center</h1>
-            <p className="text-xs text-zinc-400">Team Leaders: {teamLeaders.length} • SMM Handlers: {allSmms.length} • Registered Assets: {assets.length}</p>
+            <p className="text-xs text-zinc-400">
+              Admin: <b className="text-white">{adminProfile.full_name}</b> • Team Leaders: {teamLeaders.length} • SMM Handlers: {allSmms.length} • Assets: {projectFilteredAssets.length}
+            </p>
           </div>
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-wrap items-center gap-2.5">
             <select value={projectFilter} onChange={(e) => setProjectFilter(e.target.value)} className="rounded-lg bg-zinc-900 border border-zinc-800 hover:border-zinc-700 px-3 py-2 text-xs text-white transition-all outline-none">
               <option value="All">All Projects / Campaigns</option>
               {uniqueProjects.map(proj => <option key={proj} value={proj}>{proj}</option>)}
             </select>
-            <button onClick={handleExportMasterCSV} className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 hover:-translate-y-0.5 active:scale-95 text-black font-bold rounded-lg text-xs transition-all shadow-[0_0_20px_rgba(16,185,129,0.25)]">
+            <button
+              onClick={() => setShowSettingsDrawer(!showSettingsDrawer)}
+              className={`px-4 py-2 rounded-lg text-xs font-bold border transition-all ${
+                showSettingsDrawer
+                  ? "bg-emerald-500 text-black border-emerald-400"
+                  : "bg-zinc-900 text-emerald-400 border-emerald-500/40 hover:bg-zinc-800"
+              }`}
+            >
+              ⚙ Executive Settings & Controls
+            </button>
+            <button onClick={handleExportMasterCSV} className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-black font-bold rounded-lg text-xs transition-all shadow-[0_0_20px_rgba(16,185,129,0.25)]">
               ⬇ Export Master CSV
             </button>
             <button onClick={async () => { await supabase.auth.signOut(); setAdminProfile(null); }} className="px-4 py-2 bg-zinc-900 border border-zinc-800 hover:border-red-500/40 rounded-lg text-xs text-zinc-400 hover:text-red-400 transition-all">
@@ -216,15 +386,196 @@ export default function AdminCommandCenter() {
           </div>
         </div>
 
-        {/* Add Co-Admin Bar */}
-        <form onSubmit={handleAddAdmin} className="bg-zinc-950/90 border border-zinc-800 hover:border-zinc-700 p-4 rounded-xl flex flex-wrap items-center gap-3 transition-all duration-300">
-          <span className="text-xs font-bold uppercase text-emerald-400 mr-2">👑 Provision Co-Admin:</span>
-          <input type="text" required value={newAdminName} onChange={(e) => setNewAdminName(e.target.value)} placeholder="Admin Name" className="rounded-lg bg-black border border-zinc-800 focus:border-emerald-500 px-3 py-1.5 text-xs text-white outline-none transition-all" />
-          <input type="email" required value={newAdminEmail} onChange={(e) => setNewAdminEmail(e.target.value)} placeholder="admin2@executive.com" className="rounded-lg bg-black border border-zinc-800 focus:border-emerald-500 px-3 py-1.5 text-xs text-white outline-none transition-all" />
-          <input type="password" required value={newAdminPass} onChange={(e) => setNewAdminPass(e.target.value)} placeholder="Password" className="rounded-lg bg-black border border-zinc-800 focus:border-emerald-500 px-3 py-1.5 text-xs text-white outline-none transition-all" />
-          <button type="submit" className="px-4 py-1.5 bg-white hover:bg-emerald-400 text-black font-bold rounded-lg text-xs transition-all active:scale-95">+ Add Admin</button>
-          {adminMsg && <span className="text-xs text-emerald-400 ml-2 animate-pulse">{adminMsg}</span>}
-        </form>
+        {adminMsg && (
+          <div className="p-3 rounded-xl bg-emerald-500/15 border border-emerald-500/40 text-emerald-300 text-xs text-center font-bold animate-pulse">
+            {adminMsg}
+          </div>
+        )}
+
+        {/* EXECUTIVE SETTINGS & CONTROLS DRAWER */}
+        {showSettingsDrawer && (
+          <div className="bg-zinc-950 border border-emerald-500/40 rounded-2xl p-6 space-y-6 shadow-2xl">
+            <div className="flex flex-wrap justify-between items-center border-b border-zinc-800 pb-4 gap-3">
+              <div className="flex flex-wrap gap-2">
+                <button onClick={() => setSettingsTab("global")} className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all ${settingsTab === "global" ? "bg-emerald-500 text-black" : "bg-zinc-900 text-zinc-400 hover:text-white"}`}>🌐 Global Broadcast & Locks</button>
+                <button onClick={() => setSettingsTab("personnel")} className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all ${settingsTab === "personnel" ? "bg-emerald-500 text-black" : "bg-zinc-900 text-zinc-400 hover:text-white"}`}>👥 Personnel & Role Manager ({profiles.length})</button>
+                <button onClick={() => setSettingsTab("provision")} className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all ${settingsTab === "provision" ? "bg-emerald-500 text-black" : "bg-zinc-900 text-zinc-400 hover:text-white"}`}>➕ Provision New Account</button>
+                <button onClick={() => setSettingsTab("security")} className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all ${settingsTab === "security" ? "bg-emerald-500 text-black" : "bg-zinc-900 text-zinc-400 hover:text-white"}`}>🔐 My Admin Security</button>
+              </div>
+              <button onClick={() => setShowSettingsDrawer(false)} className="text-xs text-zinc-400 hover:text-white">Close Settings ✕</button>
+            </div>
+
+            {/* Sub-tab 1: Global Broadcast & Bulk Locks */}
+            {settingsTab === "global" && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <form onSubmit={handleSaveSystemSettings} className="bg-black border border-zinc-800 p-5 rounded-xl space-y-3">
+                  <h3 className="text-xs font-bold uppercase text-emerald-400">📢 Global Portal Broadcast Banner (MOTD)</h3>
+                  <p className="text-[11px] text-zinc-400">Appears live at the top of Team Leader & SMM dashboards without reloading.</p>
+                  <input type="text" value={motd} onChange={(e) => setMotd(e.target.value)} placeholder="e.g. All weekly reports due Friday 18:00 UTC!" className="w-full rounded-lg bg-zinc-950 border border-zinc-800 p-2.5 text-xs text-white outline-none focus:border-emerald-500" />
+                  <div className="flex items-center gap-3">
+                    <label className="text-xs text-zinc-400">Default Target:</label>
+                    <input type="number" value={dailyTarget} onChange={(e) => setDailyTarget(Number(e.target.value))} className="w-24 rounded-lg bg-zinc-950 border border-zinc-800 p-2 text-xs text-white" />
+                    <button type="submit" className="ml-auto px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-black font-bold rounded-lg text-xs">Save & Broadcast Live</button>
+                  </div>
+                </form>
+
+                <div className="bg-black border border-zinc-800 p-5 rounded-xl space-y-3">
+                  <h3 className="text-xs font-bold uppercase text-amber-400">🔒 Global SMM Metric Submission Controls</h3>
+                  <p className="text-[11px] text-zinc-400">Instantly freeze or open weekly metric logging across all {allSmms.length} SMM Handlers globally.</p>
+                  <div className="flex gap-3 pt-2">
+                    <button onClick={() => handleGlobalLockToggle(true)} className="flex-1 py-2.5 bg-red-500/20 hover:bg-red-500 hover:text-black border border-red-500/40 text-red-400 font-bold rounded-lg text-xs transition-all">
+                      🔒 Lock All SMM Inputs Globally
+                    </button>
+                    <button onClick={() => handleGlobalLockToggle(false)} className="flex-1 py-2.5 bg-emerald-500/20 hover:bg-emerald-500 hover:text-black border border-emerald-500/40 text-emerald-400 font-bold rounded-lg text-xs transition-all">
+                      🔓 Unlock All SMM Inputs Globally
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Sub-tab 2: Personnel & Role Directory */}
+            {settingsTab === "personnel" && (
+              <div className="space-y-4">
+                <input
+                  type="text"
+                  value={personnelSearch}
+                  onChange={(e) => setPersonnelSearch(e.target.value)}
+                  placeholder="Search personnel by name, role, or country..."
+                  className="w-full md:w-96 rounded-lg bg-black border border-zinc-800 p-2.5 text-xs text-white outline-none focus:border-emerald-500"
+                />
+                <div className="overflow-x-auto max-h-96">
+                  <table className="w-full text-left text-xs text-zinc-300">
+                    <thead className="bg-zinc-900 text-zinc-400 uppercase sticky top-0">
+                      <tr>
+                        <th className="p-3">Name</th>
+                        <th className="p-3">Role</th>
+                        <th className="p-3">Countries</th>
+                        <th className="p-3">Assigned TL (for SMM)</th>
+                        <th className="p-3">Metric Lock</th>
+                        <th className="p-3">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-zinc-800">
+                      {profiles
+                        .filter(p =>
+                          (p.full_name || "").toLowerCase().includes(personnelSearch.toLowerCase()) ||
+                          (p.role || "").toLowerCase().includes(personnelSearch.toLowerCase()) ||
+                          (p.country || "").toLowerCase().includes(personnelSearch.toLowerCase())
+                        )
+                        .map(p => (
+                          <tr key={p.id} className="hover:bg-zinc-900/50">
+                            <td className="p-2.5 font-bold text-white">{p.full_name}</td>
+                            <td className="p-2.5">
+                              <select
+                                value={p.role}
+                                onChange={(e) => handleUpdateUserRow(p.id, { role: e.target.value })}
+                                className="rounded bg-black border border-zinc-800 px-2 py-1 text-xs text-emerald-300"
+                              >
+                                <option value="admin">ADMIN</option>
+                                <option value="team_leader">TEAM LEADER</option>
+                                <option value="smm">SMM HANDLER</option>
+                              </select>
+                            </td>
+                            <td className="p-2.5">
+                              <input
+                                type="text"
+                                defaultValue={p.country || ""}
+                                onBlur={(e) => {
+                                  if (e.target.value !== p.country) handleUpdateUserRow(p.id, { country: e.target.value });
+                                }}
+                                className="rounded bg-black border border-zinc-800 px-2 py-1 text-xs text-white w-36"
+                              />
+                            </td>
+                            <td className="p-2.5">
+                              {p.role === "smm" ? (
+                                <select
+                                  value={p.team_leader_id || ""}
+                                  onChange={(e) => handleUpdateUserRow(p.id, { team_leader_id: e.target.value, team_leader_ids: [e.target.value] })}
+                                  className="rounded bg-black border border-zinc-800 px-2 py-1 text-xs text-blue-300"
+                                >
+                                  <option value="">Unassigned</option>
+                                  {teamLeaders.map(tl => <option key={tl.id} value={tl.id}>{tl.full_name}</option>)}
+                                </select>
+                              ) : (
+                                <span className="text-zinc-600">—</span>
+                              )}
+                            </td>
+                            <td className="p-2.5">
+                              {p.role === "smm" ? (
+                                <button
+                                  onClick={() => handleUpdateUserRow(p.id, { is_locked: !p.is_locked })}
+                                  className={`px-2.5 py-1 rounded text-[10px] font-bold ${p.is_locked ? "bg-red-500/20 text-red-400" : "bg-emerald-500/20 text-emerald-400"}`}
+                                >
+                                  {p.is_locked ? "🔒 Locked" : "🔓 Open"}
+                                </button>
+                              ) : (
+                                <span className="text-zinc-600">—</span>
+                              )}
+                            </td>
+                            <td className="p-2.5 flex items-center gap-2">
+                              <button onClick={() => handleResetUserPassword(p.id, p.full_name)} className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-amber-300 text-[10px] font-bold">
+                                🔑 Reset Pass
+                              </button>
+                              {p.id !== adminProfile.id && (
+                                <button onClick={() => handleDeleteUser(p.id, p.full_name)} className="px-2 py-1 rounded bg-red-500/15 hover:bg-red-500/30 text-red-400 text-[10px] font-bold">
+                                  ✕ Delete
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* Sub-tab 3: Provision Any Account */}
+            {settingsTab === "provision" && (
+              <form onSubmit={handleProvisionAccount} className="grid grid-cols-1 md:grid-cols-6 gap-3 bg-black border border-zinc-800 p-5 rounded-xl">
+                <select value={newRole} onChange={(e) => setNewRole(e.target.value as any)} className="rounded-lg bg-zinc-950 border border-zinc-800 p-2.5 text-xs text-emerald-400 font-bold">
+                  <option value="admin">Role: Co-Admin</option>
+                  <option value="team_leader">Role: Team Leader</option>
+                  <option value="smm">Role: SMM Handler</option>
+                </select>
+                <input type="text" required value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Full Name" className="rounded-lg bg-zinc-950 border border-zinc-800 p-2.5 text-xs text-white" />
+                <input type="email" required value={newEmail} onChange={(e) => setNewEmail(e.target.value)} placeholder="user@executive.com" className="rounded-lg bg-zinc-950 border border-zinc-800 p-2.5 text-xs text-white" />
+                <input type="password" required value={newPass} onChange={(e) => setNewPass(e.target.value)} placeholder="Password (min 6)" className="rounded-lg bg-zinc-950 border border-zinc-800 p-2.5 text-xs text-white" />
+                <select value={newCountry} onChange={(e) => setNewCountry(e.target.value)} className="rounded-lg bg-zinc-950 border border-zinc-800 p-2.5 text-xs text-white">
+                  {HIERARCHY_COUNTRIES.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+                {newRole === "smm" ? (
+                  <select value={newTlId} onChange={(e) => setNewTlId(e.target.value)} className="rounded-lg bg-zinc-950 border border-zinc-800 p-2.5 text-xs text-blue-300">
+                    <option value="">Select Team Leader</option>
+                    {teamLeaders.map(tl => <option key={tl.id} value={tl.id}>{tl.full_name}</option>)}
+                  </select>
+                ) : (
+                  <button type="submit" className="bg-emerald-500 hover:bg-emerald-400 text-black font-bold rounded-lg text-xs p-2.5">
+                    + Provision Account
+                  </button>
+                )}
+                {newRole === "smm" && (
+                  <button type="submit" className="md:col-span-6 bg-emerald-500 hover:bg-emerald-400 text-black font-bold rounded-lg text-xs p-2.5">
+                    + Provision SMM Handler Account
+                  </button>
+                )}
+              </form>
+            )}
+
+            {/* Sub-tab 4: Admin Own Security */}
+            {settingsTab === "security" && (
+              <form onSubmit={handleUpdateMySecurity} className="grid grid-cols-1 md:grid-cols-4 gap-3 bg-black border border-zinc-800 p-5 rounded-xl">
+                <input type="text" required value={myNewName} onChange={(e) => setMyNewName(e.target.value)} placeholder="Admin Display Name" className="rounded-lg bg-zinc-950 border border-zinc-800 p-2.5 text-xs text-white" />
+                <input type="email" value={myNewEmail} onChange={(e) => setMyNewEmail(e.target.value)} placeholder="Admin Login Email" className="rounded-lg bg-zinc-950 border border-zinc-800 p-2.5 text-xs text-white" />
+                <input type="password" value={myNewPassword} onChange={(e) => setMyNewPassword(e.target.value)} placeholder="New Master Password (optional)" className="rounded-lg bg-zinc-950 border border-zinc-800 p-2.5 text-xs text-white" />
+                <button type="submit" className="bg-emerald-500 hover:bg-emerald-400 text-black font-bold rounded-lg text-xs p-2.5">
+                  Save My Admin Credentials
+                </button>
+              </form>
+            )}
+          </div>
+        )}
 
         {/* Interactive Breadcrumb Trail */}
         <div className="flex items-center gap-2 text-xs bg-zinc-950 border border-zinc-800/80 px-4 py-2.5 rounded-xl">
@@ -259,8 +610,8 @@ export default function AdminCommandCenter() {
         {/* TIER 1: TEAM LEADERS GRID */}
         <div className="space-y-3">
           <div className="flex justify-between items-center">
-            <h2 className="text-sm font-bold uppercase tracking-wider text-emerald-400 flex items-center gap-2">
-              <span>1. Select a Team Leader to Unfold Squad & Performance Chart</span>
+            <h2 className="text-sm font-bold uppercase tracking-wider text-emerald-400">
+              1. Select a Team Leader to Unfold Squad & Performance Chart
             </h2>
             {selectedTlId && (
               <button onClick={() => { setSelectedTlId(null); setSelectedSmmId(null); setSelectedAssetId(null); }} className="text-xs text-zinc-400 hover:text-white bg-zinc-900 px-3 py-1 rounded-lg border border-zinc-800 transition-all">
@@ -273,7 +624,7 @@ export default function AdminCommandCenter() {
             {teamLeaders.map(tl => {
               const isSelected = selectedTlId === tl.id;
               const tlSmms = allSmms.filter(s => s.team_leader_id === tl.id || (s.team_leader_ids && s.team_leader_ids.includes(tl.id)));
-              const tlAssets = assets.filter(a => a.team_leader_id === tl.id || tlSmms.some(s => s.id === a.smm_id));
+              const tlAssets = projectFilteredAssets.filter(a => a.team_leader_id === tl.id || tlSmms.some(s => s.id === a.smm_id));
               const tlAssetIds = tlAssets.map(a => a.id);
               const tlLogs = metrics.filter(m => tlAssetIds.includes(m.asset_id));
               const impr = tlLogs.reduce((sum, x) => sum + (x.impressions || 0), 0);
@@ -292,15 +643,15 @@ export default function AdminCommandCenter() {
                   className={`group cursor-pointer rounded-2xl p-5 border transition-all duration-300 ease-out transform ${
                     isSelected
                       ? "bg-gradient-to-b from-emerald-950/40 to-zinc-950 border-emerald-500 -translate-y-1.5 shadow-[0_12px_35px_-10px_rgba(16,185,129,0.45)] ring-1 ring-emerald-400/50"
-                      : "bg-zinc-950 border-zinc-800/90 hover:border-emerald-500/50 hover:-translate-y-1 hover:shadow-[0_10px_25px_-10px_rgba(16,185,129,0.2)]"
+                      : "bg-zinc-950 border-zinc-800/90 hover:border-emerald-500/50 hover:-translate-y-1"
                   }`}
                 >
                   <div className="flex justify-between items-center">
                     <div className="flex items-center gap-2">
-                      <span className={`h-2.5 w-2.5 rounded-full transition-all duration-300 ${isSelected ? "bg-emerald-400 shadow-[0_0_10px_#34d399]" : "bg-zinc-700 group-hover:bg-emerald-400"}`}></span>
-                      <h3 className="font-bold text-lg text-white group-hover:text-emerald-300 transition-colors">{tl.full_name}</h3>
+                      <span className={`h-2.5 w-2.5 rounded-full ${isSelected ? "bg-emerald-400 shadow-[0_0_10px_#34d399]" : "bg-zinc-700 group-hover:bg-emerald-400"}`}></span>
+                      <h3 className="font-bold text-lg text-white group-hover:text-emerald-300">{tl.full_name}</h3>
                     </div>
-                    <span className={`text-[10px] px-2.5 py-0.5 rounded-full font-bold border transition-all ${isSelected ? "bg-emerald-500 text-black border-emerald-400" : "bg-blue-500/15 text-blue-300 border-blue-500/30"}`}>
+                    <span className={`text-[10px] px-2.5 py-0.5 rounded-full font-bold border ${isSelected ? "bg-emerald-500 text-black border-emerald-400" : "bg-blue-500/15 text-blue-300 border-blue-500/30"}`}>
                       {tlSmms.length} SMMs • {tlAssets.length} Assets
                     </span>
                   </div>
@@ -327,78 +678,36 @@ export default function AdminCommandCenter() {
                       </div>
                     </div>
                   </div>
-
-                  <div className="mt-4 pt-3 border-t border-zinc-800/80 flex justify-between items-center text-[11px] text-zinc-400 group-hover:text-emerald-300 transition-colors">
-                    <span>{isSelected ? "Squad Drawer Open" : "Click to Unfold SMM Squad"}</span>
-                    <span className={`transform transition-transform duration-300 font-bold ${isSelected ? "rotate-180 text-emerald-400" : "group-hover:translate-x-1"}`}>
-                      {isSelected ? "▲" : "→"}
-                    </span>
-                  </div>
                 </div>
               );
             })}
           </div>
         </div>
 
-        {/* TIER 2 ANIMATED DRAWER: TEAM LEADER PERFORMANCE CHART + SMM HANDLERS */}
+        {/* TIER 2 ANIMATED DRAWER */}
         <div className={`grid transition-all duration-500 ease-in-out ${selectedTlId ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0 pointer-events-none"}`}>
           <div className="overflow-hidden">
             {activeTl && (
-              <div className="bg-zinc-950/95 border border-blue-500/40 rounded-2xl p-6 space-y-6 shadow-[0_0_45px_-15px_rgba(59,130,246,0.3)] relative">
-                <div className="absolute top-0 left-8 w-16 h-1 bg-gradient-to-r from-emerald-400 to-blue-500 rounded-b"></div>
-
-                {/* Squad Performance Breakdown Chart */}
+              <div className="bg-zinc-950/95 border border-blue-500/40 rounded-2xl p-6 space-y-6 shadow-2xl">
                 <div className="flex flex-wrap justify-between items-center border-b border-zinc-800 pb-4 gap-4">
                   <div>
                     <span className="text-[10px] uppercase tracking-widest bg-blue-500/20 text-blue-300 border border-blue-500/30 px-2.5 py-0.5 rounded-full font-bold">
                       Tier 2 — Squad Command Drawer
                     </span>
                     <h2 className="text-2xl font-bold text-white mt-1">
-                      Commander {activeTl.full_name}&apos;s Squad & Performance Chart
+                      Commander {activeTl.full_name}&apos;s Squad ({displayedSmms.length} SMMs)
                     </h2>
-                    <p className="text-xs text-zinc-400">Click any SMM Handler card below to unfold their managed Social Media Assets</p>
                   </div>
-                  <button onClick={() => { setSelectedTlId(null); setSelectedSmmId(null); setSelectedAssetId(null); }} className="text-xs px-3 py-1.5 rounded-lg bg-zinc-900 border border-zinc-800 hover:border-red-500/40 text-zinc-400 hover:text-red-400 transition-all">
+                  <button onClick={() => { setSelectedTlId(null); setSelectedSmmId(null); setSelectedAssetId(null); }} className="text-xs px-3 py-1.5 rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-red-400">
                     Close Squad View ✕
                   </button>
                 </div>
-
-                {/* Visual Comparative Bar Chart for SMMs under this TL */}
-                {displayedSmms.length > 0 && (
-                  <div className="bg-black/60 border border-zinc-800/90 rounded-xl p-4 space-y-3">
-                    <div className="text-xs font-bold uppercase text-zinc-400">Squad Member Comparative Performance Chart</div>
-                    <div className="space-y-2.5">
-                      {displayedSmms.map(smm => {
-                        const smmAssets = assets.filter(a => a.smm_id === smm.id);
-                        const smmLogs = metrics.filter(m => smmAssets.some(a => a.id === m.asset_id));
-                        const totalImpr = smmLogs.reduce((s, x) => s + (x.impressions || 0), 0);
-                        const maxSquadImpr = Math.max(1000, ...displayedSmms.map(m => {
-                          const mAssets = assets.filter(a => a.smm_id === m.id);
-                          return metrics.filter(log => mAssets.some(a => a.id === log.asset_id)).reduce((s, x) => s + (x.impressions || 0), 0);
-                        }));
-                        const widthPct = Math.min(100, Math.max(4, Math.round((totalImpr / maxSquadImpr) * 100)));
-
-                        return (
-                          <div key={smm.id} onClick={() => { setSelectedSmmId(smm.id); setSelectedAssetId(null); }} className="cursor-pointer group">
-                            <div className="flex justify-between text-xs font-mono mb-1">
-                              <span className="text-zinc-300 group-hover:text-blue-400 transition-colors font-bold">{smm.full_name} ({smmAssets.length} Assets)</span>
-                              <span className="text-blue-400">{totalImpr.toLocaleString()} Impr.</span>
-                            </div>
-                            <div className="w-full h-2.5 bg-zinc-900 rounded-full overflow-hidden p-0.5">
-                              <div className="h-full rounded-full bg-gradient-to-r from-blue-600 via-indigo-500 to-purple-500 transition-all duration-1000" style={{ width: `${widthPct}%` }}></div>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
 
                 {/* SMM Handler Cards */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   {displayedSmms.map(smm => {
                     const isSmmSelected = selectedSmmId === smm.id;
-                    const smmAssets = assets.filter(a => a.smm_id === smm.id);
+                    const smmAssets = projectFilteredAssets.filter(a => a.smm_id === smm.id);
                     const smmLogs = metrics.filter(m => smmAssets.some(a => a.id === m.asset_id));
                     const totalImpr = smmLogs.reduce((s, x) => s + (x.impressions || 0), 0);
                     const totalEng = smmLogs.reduce((s, x) => s + (x.engagements || 0), 0);
@@ -414,62 +723,46 @@ export default function AdminCommandCenter() {
                             setSelectedSmmId(smm.id); setSelectedAssetId(null);
                           }
                         }}
-                        className={`group cursor-pointer rounded-xl p-5 border transition-all duration-300 transform ${
+                        className={`group cursor-pointer rounded-xl p-5 border transition-all duration-300 ${
                           isSmmSelected
-                            ? "bg-gradient-to-b from-blue-950/50 to-black border-blue-400 -translate-y-1 shadow-[0_10px_30px_-10px_rgba(59,130,246,0.5)] ring-1 ring-blue-400/50"
-                            : "bg-black/80 border-zinc-800 hover:border-blue-500/50 hover:-translate-y-1 hover:shadow-lg"
+                            ? "bg-gradient-to-b from-blue-950/50 to-black border-blue-400 shadow-lg"
+                            : "bg-black/80 border-zinc-800 hover:border-blue-500/50"
                         }`}
                       >
                         <div className="flex justify-between items-center">
-                          <h3 className="font-bold text-white text-base group-hover:text-blue-300 transition-colors">{smm.full_name}</h3>
-                          <span className={`text-[10px] px-2.5 py-0.5 rounded-full font-bold ${isSmmSelected ? "bg-blue-500 text-black" : "bg-purple-500/20 text-purple-300"}`}>
-                            {smmAssets.length} Assets
-                          </span>
+                          <h3 className="font-bold text-white text-base">{smm.full_name}</h3>
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); handleUpdateUserRow(smm.id, { is_locked: !smm.is_locked }); }}
+                              className={`text-[10px] px-2 py-0.5 rounded font-bold ${smm.is_locked ? "bg-red-500/20 text-red-400" : "bg-emerald-500/20 text-emerald-400"}`}
+                            >
+                              {smm.is_locked ? "🔒 Locked" : "🔓 Open"}
+                            </button>
+                            <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-purple-500/20 text-purple-300">
+                              {smmAssets.length} Assets
+                            </span>
+                          </div>
                         </div>
                         <p className="text-xs text-zinc-400 mt-1">Countries: {smm.country}</p>
-                        <p className="text-[11px] text-zinc-500 mt-0.5">Platforms: {(smm.platforms || []).join(", ").toUpperCase() || "ALL"}</p>
-
                         <div className="grid grid-cols-3 gap-2 mt-4 pt-3 border-t border-zinc-800 text-xs font-mono">
                           <div><span className="text-zinc-500 block text-[9px]">IMPR</span><span className="text-blue-400 font-bold">{totalImpr.toLocaleString()}</span></div>
                           <div><span className="text-zinc-500 block text-[9px]">ENG</span><span className="text-purple-400 font-bold">{totalEng.toLocaleString()}</span></div>
                           <div><span className="text-zinc-500 block text-[9px]">FOLLOWERS</span><span className="text-emerald-400 font-bold">{totalFol.toLocaleString()}</span></div>
                         </div>
-
-                        <div className="mt-3 pt-2 border-t border-zinc-900 flex justify-between items-center text-[11px] text-zinc-400 group-hover:text-blue-300">
-                          <span>{isSmmSelected ? "Assets Unfolded Below" : "Click to Unfold Assets"}</span>
-                          <span className={`transition-transform duration-300 ${isSmmSelected ? "rotate-180 text-blue-400" : "group-hover:translate-x-1"}`}>
-                            {isSmmSelected ? "▲" : "→"}
-                          </span>
-                        </div>
                       </div>
                     );
                   })}
-                  {displayedSmms.length === 0 && (
-                    <div className="col-span-3 text-center py-8 text-zinc-500 text-sm border border-dashed border-zinc-800 rounded-xl">
-                      No SMM Handlers have registered under Commander {activeTl.full_name} yet.
-                    </div>
-                  )}
                 </div>
 
-                {/* TIER 3 ANIMATED DRAWER: ASSETS MANAGED BY SELECTED SMM */}
+                {/* TIER 3 ANIMATED DRAWER: ASSETS */}
                 <div className={`grid transition-all duration-500 ease-in-out ${selectedSmmId ? "grid-rows-[1fr] opacity-100 pt-4 border-t border-zinc-800" : "grid-rows-[0fr] opacity-0 pointer-events-none"}`}>
                   <div className="overflow-hidden space-y-4">
                     {activeSmm && (
                       <>
-                        <div className="flex justify-between items-center">
-                          <div>
-                            <span className="text-[10px] uppercase tracking-widest bg-purple-500/20 text-purple-300 border border-purple-500/30 px-2.5 py-0.5 rounded-full font-bold">
-                              Tier 3 — Handler Asset Vault
-                            </span>
-                            <h3 className="text-xl font-bold text-white mt-1">
-                              Social Media Assets Managed by {activeSmm.full_name} ({displayedAssets.length})
-                            </h3>
-                          </div>
-                          <button onClick={() => { setSelectedSmmId(null); setSelectedAssetId(null); }} className="text-xs text-zinc-400 hover:text-white underline">
-                            Collapse Assets ▲
-                          </button>
-                        </div>
-
+                        <h3 className="text-xl font-bold text-white">
+                          Assets Managed by {activeSmm.full_name} ({displayedAssets.length})
+                        </h3>
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                           {displayedAssets.map(asset => {
                             const isRevealed = !!revealedAssets[asset.id];
@@ -479,67 +772,66 @@ export default function AdminCommandCenter() {
                               <div
                                 key={asset.id}
                                 onClick={() => setSelectedAssetId(isAssetSelected ? null : asset.id)}
-                                className={`group cursor-pointer rounded-xl p-5 border space-y-3 transition-all duration-300 transform ${
-                                  isAssetSelected
-                                    ? "bg-gradient-to-b from-purple-950/50 to-black border-purple-400 -translate-y-1 shadow-[0_10px_30px_-10px_rgba(168,85,247,0.45)]"
-                                    : "bg-black border-zinc-800 hover:border-purple-500/50 hover:-translate-y-1"
+                                className={`cursor-pointer rounded-xl p-5 border space-y-3 transition-all ${
+                                  isAssetSelected ? "bg-purple-950/30 border-purple-400" : "bg-black border-zinc-800 hover:border-purple-500/50"
                                 }`}
                               >
                                 <div className="flex justify-between items-center">
-                                  <span className="text-[10px] font-bold uppercase px-2.5 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30">
-                                    ASSET: {asset.platform}
+                                  <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-purple-500/20 text-purple-300">
+                                    {asset.platform}
                                   </span>
-                                  <div className="flex items-center gap-2">
+                                  <div className="flex items-center gap-1.5">
                                     <button
                                       type="button"
                                       onClick={(e) => { e.stopPropagation(); setRevealedAssets(prev => ({ ...prev, [asset.id]: !prev[asset.id] })); }}
-                                      className="text-[10px] px-2 py-0.5 rounded bg-zinc-900 hover:bg-zinc-800 border border-zinc-700 text-zinc-300 transition-all"
+                                      className="text-[10px] px-2 py-0.5 rounded bg-zinc-900 border border-zinc-700 text-zinc-300"
                                     >
                                       {isRevealed ? "🙈 Mask" : "🔓 Reveal"}
                                     </button>
-                                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${asset.status === "active" ? "bg-emerald-500/20 text-emerald-400" : "bg-red-500/20 text-red-400"}`}>
+                                    <button
+                                      type="button"
+                                      onClick={(e) => { e.stopPropagation(); handleToggleAssetStatus(asset); }}
+                                      className={`text-[10px] font-bold px-2 py-0.5 rounded ${asset.status === "active" ? "bg-emerald-500/20 text-emerald-400" : "bg-red-500/20 text-red-400"}`}
+                                    >
                                       {asset.status.toUpperCase()}
-                                    </span>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={(e) => { e.stopPropagation(); handleDeleteAsset(asset.id); }}
+                                      className="text-[10px] px-1.5 py-0.5 rounded bg-red-500/10 text-red-400 hover:bg-red-500/30"
+                                    >
+                                      ✕
+                                    </button>
                                   </div>
                                 </div>
 
                                 <div>
-                                  <h4 className="font-bold text-white text-lg group-hover:text-purple-300 transition-colors">{asset.account_id}</h4>
+                                  <h4 className="font-bold text-white text-lg">{asset.account_id}</h4>
                                   <a href={asset.profile_link} target="_blank" onClick={(e) => e.stopPropagation()} className="text-xs text-blue-400 hover:underline truncate block">
                                     {asset.profile_link}
                                   </a>
                                 </div>
 
                                 <div className="text-[11px] font-mono text-zinc-300 bg-zinc-950 border border-zinc-800/80 p-3 rounded-lg space-y-1">
-                                  <div><b>Pass:</b> <span className={`transition-all duration-300 ${isRevealed ? "blur-0 text-emerald-300" : "blur-[4px] select-none"}`}>{asset.account_password}</span></div>
+                                  <div><b>Pass:</b> <span className={isRevealed ? "text-emerald-300" : "blur-[4px] select-none"}>{asset.account_password}</span></div>
                                   <div><b>Email:</b> {asset.email}</div>
-                                  <div><b>Email Pass:</b> <span className={`transition-all duration-300 ${isRevealed ? "blur-0 text-emerald-300" : "blur-[4px] select-none"}`}>{asset.email_password}</span></div>
-                                  <div><b>2FA:</b> <span className={`transition-all duration-300 ${isRevealed ? "blur-0 text-amber-300" : "blur-[4px] select-none"}`}>{asset.two_fa_code || "None"}</span> • <b>Tel:</b> {asset.phone_number || "N/A"}</div>
-                                </div>
-
-                                <div className="text-[11px] text-zinc-400 group-hover:text-purple-300 flex justify-between items-center pt-1">
-                                  <span>{isAssetSelected ? "Viewing Weekly Ledger Below" : "Click to Inspect Weekly Ledger"}</span>
-                                  <span>{isAssetSelected ? "▲" : "▼"}</span>
+                                  <div><b>Email Pass:</b> <span className={isRevealed ? "text-emerald-300" : "blur-[4px] select-none"}>{asset.email_password}</span></div>
+                                  <div><b>2FA:</b> <span className={isRevealed ? "text-amber-300" : "blur-[4px] select-none"}>{asset.two_fa_code || "None"}</span> • <b>Tel:</b> {asset.phone_number || "N/A"}</div>
                                 </div>
                               </div>
                             );
                           })}
-                          {displayedAssets.length === 0 && (
-                            <div className="col-span-3 text-center py-6 text-zinc-500 text-xs border border-dashed border-zinc-800 rounded-xl">
-                              No Assets registered by {activeSmm.full_name} yet.
-                            </div>
-                          )}
                         </div>
                       </>
                     )}
                   </div>
                 </div>
 
-                {/* TIER 4 ANIMATED DRAWER: WEEKLY METRICS LEDGER FOR SELECTED ASSET */}
+                {/* TIER 4 ANIMATED DRAWER: WEEKLY METRICS LEDGER */}
                 <div className={`grid transition-all duration-500 ease-in-out ${selectedAssetId ? "grid-rows-[1fr] opacity-100 pt-4 border-t border-zinc-800" : "grid-rows-[0fr] opacity-0 pointer-events-none"}`}>
                   <div className="overflow-hidden">
                     {activeAsset && (
-                      <div className="bg-black border border-emerald-500/40 rounded-xl p-6 space-y-4 shadow-2xl">
+                      <div className="bg-black border border-emerald-500/40 rounded-xl p-6 space-y-4">
                         <div className="flex justify-between items-center">
                           <h3 className="text-lg font-bold text-white">
                             📈 Weekly Metrics Ledger — [{activeAsset.platform.toUpperCase()}] {activeAsset.account_id}
@@ -563,7 +855,7 @@ export default function AdminCommandCenter() {
                             </thead>
                             <tbody className="divide-y divide-zinc-800">
                               {activeAssetMetrics.map(m => (
-                                <tr key={m.id} className="hover:bg-zinc-900/60 transition-colors">
+                                <tr key={m.id} className="hover:bg-zinc-900/60">
                                   <td className="p-3 font-bold text-white">{m.week_of}</td>
                                   <td className="p-3 text-blue-400">{m.impressions.toLocaleString()}</td>
                                   <td className="p-3 text-purple-400">{m.engagements.toLocaleString()}</td>
