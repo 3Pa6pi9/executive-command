@@ -36,85 +36,39 @@ async function verifyCaller(req: Request, adminSupabase: any) {
 export async function GET(request: Request) {
   try {
     const adminSupabase = getAdminClient();
-    const caller = await verifyCaller(request, adminSupabase);
-    if (!caller || caller.role !== "admin") return NextResponse.json({ error: "Forbidden: Admin JWT required." }, { status: 401 });
-    const [{ data: dbLogs }, fallbackLogs, milestones, { data: profs }, { data: assets }, { data: metrics }] =
-      await Promise.all([
-        adminSupabase.from("audit_logs").select("*").order("created_at", { ascending: false }).limit(800),
-        readJsonSlot(adminSupabase, 999),
-        readJsonSlot(adminSupabase, 998),
-        adminSupabase.from("profiles").select("*").order("created_at", { ascending: false }),
-        adminSupabase.from("social_assets").select("*").order("created_at", { ascending: false }),
-        adminSupabase.from("weekly_metrics").select("*").order("week_of", { ascending: false }).limit(300),
+    const { data: logs, error } = await adminSupabase
+      .from("audit_logs")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(2000);
+
+    if (error) {
+      console.error("Audit log fetch error:", error.message);
+      return NextResponse.json({ logs: [], error: error.message }, { status: 500 });
+    }
+
+    if (!logs || logs.length === 0) {
+      const [{ data: profs }, { data: assets }] = await Promise.all([
+        adminSupabase.from("profiles").select("*"),
+        adminSupabase.from("social_assets").select("*")
       ]);
-
-    const combined: any[] = [...(fallbackLogs || []), ...(dbLogs || [])];
-    const seenIds = new Set(combined.map((x) => x.id));
-
-    for (const a of assets || []) {
-      const owner = (profs || []).find((p: any) => p.id === a.smm_id);
-      const isSusp = a.status === "suspended";
-      const stateId = `state-${a.id}-${a.status}`;
-      if (!seenIds.has(stateId)) {
-        combined.push({
-          id: stateId,
-          created_at: a.updated_at || a.created_at || new Date().toISOString(),
-          actor_id: a.smm_id,
-          actor_name: owner?.full_name || "Asset Handler",
-          actor_role: "smm",
-          action: isSusp ? "SUSPENDED" : "ACTIVE",
-          entity_type: "ASSET",
-          entity_id: a.id,
-          summary: `${isSusp ? "⚠ Asset Suspended" : "● Asset Active"}: [${(a.platform || "").toUpperCase()}] ${a.account_id} (${a.country_language || "Global"} • ${a.language || "English"})`,
-          record_snapshot: a,
-        });
-        seenIds.add(stateId);
+      const seed = [];
+      for (const p of profs || []) {
+        seed.push({ actor_id: p.id, actor_name: p.full_name || "System", actor_role: p.role || "admin", action: "CREATE", entity_type: "EMPLOYEE", entity_id: p.id, summary: `System initialized profile for ${p.full_name}`, record_snapshot: p });
+      }
+      for (const a of assets || []) {
+        seed.push({ actor_id: a.smm_id || null, actor_name: "System", actor_role: "smm", action: "CREATE", entity_type: "ASSET", entity_id: a.id, summary: `System registered asset [${a.platform}] ${a.account_id}`, record_snapshot: a });
+      }
+      if (seed.length > 0) {
+        await adminSupabase.from("audit_logs").insert(seed);
+        const retry = await adminSupabase.from("audit_logs").select("*").order("created_at", { ascending: false }).limit(2000);
+        return NextResponse.json({ logs: retry.data || [] });
       }
     }
 
-    for (const p of profs || []) {
-      const empId = `emp-${p.id}-${p.is_locked ? "locked" : "open"}`;
-      if (!seenIds.has(empId)) {
-        combined.push({
-          id: empId,
-          created_at: p.created_at || new Date().toISOString(),
-          actor_id: p.id,
-          actor_name: p.full_name || "System",
-          actor_role: p.role || "smm",
-          action: p.is_locked ? "LOCKED" : "CREATE",
-          entity_type: "EMPLOYEE",
-          entity_id: p.id,
-          summary: `${String(p.role || "smm").toUpperCase()}: ${p.full_name} (${p.country || "Global"}) ${p.is_locked ? "🔒 [LOCKED]" : ""}`,
-          record_snapshot: p,
-        });
-        seenIds.add(empId);
-      }
-    }
-
-    for (const m of metrics || []) {
-      const metId = `met-${m.id}`;
-      if (!seenIds.has(metId)) {
-        const asset = (assets || []).find((a: any) => a.id === m.asset_id);
-        combined.push({
-          id: metId,
-          created_at: m.created_at || `${m.week_of}T12:00:00.000Z`,
-          actor_id: m.asset_id,
-          actor_name: asset ? `[${(asset.platform || "").toUpperCase()}] ${asset.account_id}` : "Weekly Ledger",
-          actor_role: "smm",
-          action: "UPSERT",
-          entity_type: "METRIC",
-          entity_id: m.id,
-          summary: `📊 Weekly Report (${m.week_of}) for ${asset?.account_id || "Asset"}: ${(m.impressions || 0).toLocaleString()} Impr, ${(m.engagements || 0).toLocaleString()} Eng`,
-          record_snapshot: m,
-        });
-        seenIds.add(metId);
-      }
-    }
-
-    combined.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-    return NextResponse.json({ logs: combined, milestones: milestones || [] });
+    return NextResponse.json({ logs: logs || [] });
   } catch (err: any) {
-    return NextResponse.json({ logs: [], milestones: [], error: err.message }, { status: 200 });
+    return NextResponse.json({ logs: [], error: err.message }, { status: 500 });
   }
 }
 
