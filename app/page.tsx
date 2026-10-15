@@ -127,7 +127,7 @@ export default function SMMGatekeeper() {
                   <label className="text-[11px] uppercase font-bold text-zinc-400 ml-1">2. Tap Platform(s)</label>
                   <div className="grid grid-cols-3 gap-2 mt-1.5">
                     {PLATFORMS.map(p => (
-                      <button type="button" key={p} onClick={() => toggleItem(p, selectedPlatforms, setSelectedPlatforms)} className={`min-h-[42px] py-2 px-2 rounded-xl text-xs font-bold uppercase border active:scale-95 transition-all ${selectedPlatforms.includes(p) ? "bg-purple-500/25 border-purple-500 text-purple-200 shadow-[0_0_12px_rgba(168,85,247,0.25)]" : "bg-black border-zinc-800 text-zinc-500"}`}>
+                      <button type="button" key={p} onClick={() => toggleItem(p, selectedPlatforms, setSelectedPlatforms)} className={`min-h-[42px] py-2 px-2 rounded-xl text-xs font-bold uppercase border active:scale-95 transition-all ${selectedPlatforms.includes(p) ? "bg-purple-500/25 border-purple-500 text-purple-200" : "bg-black border-zinc-800 text-zinc-500"}`}>
                         {p}
                       </button>
                     ))}
@@ -180,7 +180,7 @@ export default function SMMGatekeeper() {
               </div>
             )}
 
-            <button type="submit" disabled={status.type === "loading"} className="w-full min-h-[48px] bg-purple-600 text-white p-3.5 rounded-xl font-bold hover:bg-purple-500 active:scale-[0.98] transition-all shadow-[0_0_25px_rgba(147,51,234,0.35)]">
+            <button type="submit" disabled={status.type === "loading"} className="w-full min-h-[48px] bg-purple-600 text-white p-3.5 rounded-xl font-bold hover:bg-purple-500 active:scale-[0.98] transition-all">
               {status.type === "loading" ? "Verifying..." : isLoginMode ? "Sign In with @smm" : "Create @smm Account"}
             </button>
             
