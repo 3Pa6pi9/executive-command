@@ -136,6 +136,7 @@ export default function TeamLeaderPortal() {
   };
 
   const handleToggleLock = async (smm: any) => {
+    setSquadMembers((prev: any[]) => prev.map(m => m.id === smm.id ? { ...m, is_locked: !smm.is_locked } : m));
     await fetch("/api/crud", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -195,6 +196,7 @@ export default function TeamLeaderPortal() {
 
   const handleSetAssetStatus = async (asset: any, newStatus: "active" | "suspended") => {
     if (asset.status === newStatus) return;
+    setSquadAssets((prev: any[]) => prev.map(a => a.id === asset.id ? { ...a, status: newStatus } : a));
     await fetch("/api/crud", {
       method: "POST",
       headers: { "Content-Type": "application/json" },

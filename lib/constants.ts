@@ -12,11 +12,24 @@ export const APP_THEMES: any[] = [
   { id: "emerald", name: "Emerald", label: "Emerald", icon: "🌲", shellBg: "bg-[#020d08] text-emerald-50", cardBg: "bg-[#061a10] border-emerald-500/30" }
 ];
 APP_THEMES.forEach((t: any) => Object.defineProperty(APP_THEMES, t.id, { value: t, enumerable: false }));
+const _cache = new Map<string, { ts: number; data: any[] }>();
+const _inflight = new Map<string, Promise<any[]>>();
 export async function fetchAllRows(sb: any, tbl: string, ord = "created_at", fCol?: string, fVal?: any): Promise<any[]> {
-  let q = sb.from(tbl).select("*").order(ord, { ascending: false }).limit(5000);
-  if (fCol && fVal !== undefined) q = Array.isArray(fVal) ? (fVal.length ? q.in(fCol, fVal) : q.limit(0)) : q.eq(fCol, fVal);
-  const { data } = await q;
-  return data || [];
+  const key = `${tbl}_${ord}_${fCol}_${JSON.stringify(fVal || "")}`;
+  const now = Date.now(), hit = _cache.get(key);
+  if (hit && now - hit.ts < 600) return hit.data;
+  if (_inflight.has(key)) return _inflight.get(key)!;
+  const p = (async () => {
+    let q = sb.from(tbl).select("*").order(ord, { ascending: false }).limit(5000);
+    if (fCol && fVal !== undefined) q = Array.isArray(fVal) ? (fVal.length ? q.in(fCol, fVal) : q.limit(0)) : q.eq(fCol, fVal);
+    const { data } = await q;
+    const res = data || [];
+    _cache.set(key, { ts: Date.now(), data: res });
+    _inflight.delete(key);
+    return res;
+  })();
+  _inflight.set(key, p);
+  return p;
 }
 export function parseBulkRows(raw: string): string[][] {
   return raw.split(/\r?\n/).map(l => l.trim()).filter(Boolean).map(l => l.split(l.includes("\t") ? "\t" : ",").map(c => c.trim().replace(/^"|"$/g, "")));

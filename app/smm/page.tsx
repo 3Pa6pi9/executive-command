@@ -179,6 +179,7 @@ export default function SMMDashboard() {
 
   const handleSetAssetStatus = async (asset: any, newStatus: "active" | "suspended") => {
     if (asset.status === newStatus) return;
+    setAssets((prev: any[]) => prev.map(a => a.id === asset.id ? { ...a, status: newStatus } : a));
     await fetch("/api/crud", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -309,6 +310,7 @@ export default function SMMDashboard() {
 
   const handleDeleteOwnAsset = async (assetId: string) => {
     if (!confirm("Delete this Asset?")) return;
+    setAssets((prev: any[]) => prev.filter(a => a.id !== assetId));
     await fetch("/api/crud", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
