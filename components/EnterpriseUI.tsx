@@ -242,7 +242,7 @@ export function SMMSpotlightModal({
   const activeCount = smmAssets.filter((a) => a.status === "active").length;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-2xl p-3 sm:p-6 animate-in fade-in duration-300" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/80 backdrop-blur-2xl p-3 sm:p-6 animate-in fade-in duration-300" onClick={onClose}>
       <div
         onClick={(e) => e.stopPropagation()}
         className="w-full max-w-5xl bg-gradient-to-b from-zinc-900/95 via-zinc-950 to-black border border-blue-500/60 rounded-3xl p-5 sm:p-7 space-y-6 shadow-[0_0_95px_-10px_rgba(59,130,246,0.55)] max-h-[90vh] overflow-y-auto animate-in zoom-in-95 duration-300"
