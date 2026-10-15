@@ -1,3 +1,4 @@
+import { downloadMultiTabWorkbook } from "./excelExport";
 export const PLATFORMS = ["twitter","instagram","facebook","tiktok","blog","medium"];
 export const AFRICAN_COUNTRIES = ["Kenya","Nigeria","Ghana","South Africa","Egypt","Morocco","Algeria","Tunisia","Uganda","Tanzania","Rwanda","Senegal","Cameroon","Ivory Coast","Zambia","Zimbabwe","DRC","Sudan","Angola"];
 export const EURASIA_SQUAD_COUNTRIES = ["UK","Malaysia","Russia","Belurus","Romania","France","Afghan","Crotia","Serbia","New Serbia","Germany","Kosavo","Greece","Hungary"];
@@ -54,23 +55,8 @@ export function aggregateMetricsByHorizon(metrics: any[], horizon: TimeHorizon, 
   }
   return Array.from(map.values()).sort((a, b) => b.period.localeCompare(a.period));
 }
-export function exportHorizonCSV({ horizon, metrics, assets, profiles, projectFilter = "All", scopeLabel = "Executive_Command" }: any) {
-  const rows = aggregateMetricsByHorizon(metrics, horizon).filter(r => {
-    const a = assets.find((x: any) => x.id === r.asset_id);
-    return a && (projectFilter === "All" || a.project_name === projectFilter);
-  }).map(r => {
-    const a = assets.find((x: any) => x.id === r.asset_id) || {};
-    const smm = profiles.find((p: any) => p.id === a.smm_id) || {};
-    const tl = profiles.find((p: any) => p.id === (a.team_leader_id || smm.team_leader_id)) || {};
-    const eng = r.impressions > 0 ? ((r.engagements / r.impressions) * 100).toFixed(2) : "0.00";
-    const net = r.followers_gained - r.followers_lost;
-    return [`"${horizon.toUpperCase()}"`,`"${r.period}"`,`"${tl.full_name || "Unassigned"}"`,`"${smm.full_name || "Unassigned"}"`,`"${(a.platform || "").toUpperCase()}"`,`"${a.account_id || ""}"`,`"${(a.status || "active").toUpperCase()}"`,`"${a.country_language || ""}"`,`"${a.language || "English"}"`,`"${a.tl_campaign || a.project_name || "General"}"`,r.impressions,r.engagements,`${eng}%`,r.likes,r.shares_reposts,r.comments,r.followers_gained,r.followers_lost,net,r.total_followers,r.posts_published,r.top_post_impressions,`"${a.profile_link || ""}"`].join(",");
-  });
-  const hdr = ["Horizon","Period","Team Leader","SMM Handler","Platform","Asset Handle","Status","Country","Language","Campaign","Impressions","Engagements","Eng %","Likes","Reposts","Comments","Followers Gained","Followers Lost","Net Followers","Total Followers","Posts","Top Post Impr","Profile Link"].join(",");
-  const el = document.createElement("a");
-  el.href = URL.createObjectURL(new Blob(["\uFEFF" + [hdr, ...rows].join("\n")], { type: "text/csv;charset=utf-8;" }));
-  el.download = `${scopeLabel}_${horizon.toUpperCase()}_Report.csv`;
-  el.click();
+export function exportHorizonCSV(args: any) {
+  return downloadMultiTabWorkbook(args);
 }
 export function computeAchievements(assets: any[], metrics: any[], ..._r: any[]) {
   const impr = metrics.reduce((s, m) => s + Number(m.impressions || 0), 0);
