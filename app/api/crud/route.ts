@@ -1,6 +1,6 @@
-import { normalizeAuthUsername, formatDisplayUsername } from "@/lib/constants";
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { normalizeAuthUsername, formatDisplayUsername } from "@/lib/constants";
 
 export async function POST(request: Request) {
   try {
@@ -28,16 +28,41 @@ export async function POST(request: Request) {
       }]);
     };
 
-    // =========================================================================
-    // 1. EMPLOYEE (PROFILES) CRUD & BULK ONBOARDING
-    // =========================================================================
+    if (entity === "audit" && action === "restore") {
+      if (actor.role !== "admin") return NextResponse.json({ error: "Only Admins can restore archived records." }, { status: 403 });
+      const { logId } = payload;
+      const { data: logEntry } = await adminSupabase.from("audit_logs").select("*").eq("id", logId).single();
+      if (!logEntry || !logEntry.record_snapshot) {
+        return NextResponse.json({ error: "Archive snapshot not found." }, { status: 404 });
+      }
+
+      const snap = logEntry.record_snapshot.before || logEntry.record_snapshot;
+      if (logEntry.entity_type === "ASSET") {
+        const { error } = await adminSupabase.from("social_assets").upsert([snap]);
+        if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+        await logAudit("RESTORE", "ASSET", snap.id, `Restored Asset [${(snap.platform || "").toUpperCase()}] ${snap.account_id} from Archive Vault`, snap);
+        return NextResponse.json({ success: true });
+      }
+
+      if (logEntry.entity_type === "METRIC") {
+        const { error } = await adminSupabase.from("weekly_metrics").upsert([snap]);
+        if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+        await logAudit("RESTORE", "METRIC", snap.id, `Restored Weekly Metric (${snap.week_of}) from Archive Vault`, snap);
+        return NextResponse.json({ success: true });
+      }
+
+      return NextResponse.json({ error: "This entity type cannot be auto-restored." }, { status: 400 });
+    }
+
     if (entity === "profile") {
       if (action === "create") {
         if (actor.role === "smm") return NextResponse.json({ error: "Forbidden." }, { status: 403 });
         const targetRole = actor.role === "team_leader" ? "smm" : (payload.role || "smm");
+        const roleTag = targetRole === "team_leader" ? "tl" : targetRole === "admin" ? "admin" : "smm";
+        const normEmail = normalizeAuthUsername(payload.email, roleTag);
 
         const { data: authData, error: authErr } = await adminSupabase.auth.admin.createUser({
-          email: normalizeAuthUsername(payload.email, targetRole === "team_leader" ? "tl" : targetRole === "admin" ? "admin" : "smm"),
+          email: normEmail,
           password: payload.password,
           email_confirm: true
         });
@@ -62,7 +87,7 @@ export async function POST(request: Request) {
           return NextResponse.json({ error: profErr.message }, { status: 400 });
         }
 
-        await logAudit("CREATE", "EMPLOYEE", authData.user.id, `Created ${targetRole.toUpperCase()} employee: ${payload.full_name} (${payload.email})`, { ...profileRecord, email: payload.email });
+        await logAudit("CREATE", "EMPLOYEE", authData.user.id, `Created ${targetRole.toUpperCase()} employee: ${payload.full_name} (${formatDisplayUsername(normEmail)})`, { ...profileRecord, username: formatDisplayUsername(normEmail) });
         return NextResponse.json({ success: true });
       }
 
@@ -74,8 +99,11 @@ export async function POST(request: Request) {
 
         for (const r of rows) {
           const roleToUse = actor.role === "team_leader" ? "smm" : (r.role || "smm");
+          const rTag = roleToUse === "team_leader" ? "tl" : roleToUse === "admin" ? "admin" : "smm";
+          const normEmail = normalizeAuthUsername(r.email, rTag);
+
           const { data: authData, error: authErr } = await adminSupabase.auth.admin.createUser({
-            email: normalizeAuthUsername(r.email, roleToUse === "team_leader" ? "tl" : roleToUse === "admin" ? "admin" : "smm"),
+            email: normEmail,
             password: r.password || "Welcome@2026!",
             email_confirm: true
           });
@@ -96,7 +124,7 @@ export async function POST(request: Request) {
           const { error: pErr } = await adminSupabase.from("profiles").insert([profRec]);
           if (!pErr) {
             createdCount++;
-            await logAudit("BULK_CREATE", "EMPLOYEE", authData.user.id, `Bulk onboarded ${roleToUse.toUpperCase()}: ${r.full_name} (${r.email})`, { ...profRec, email: r.email });
+            await logAudit("BULK_CREATE", "EMPLOYEE", authData.user.id, `Bulk onboarded ${roleToUse.toUpperCase()}: ${r.full_name} (${formatDisplayUsername(normEmail)})`, { ...profRec, username: formatDisplayUsername(normEmail) });
           } else {
             await adminSupabase.auth.admin.deleteUser(authData.user.id);
             errors.push(`${r.email}: ${pErr.message}`);
@@ -165,9 +193,6 @@ export async function POST(request: Request) {
       }
     }
 
-    // =========================================================================
-    // 2. SOCIAL MEDIA ASSETS CRUD & BULK IMPORT
-    // =========================================================================
     if (entity === "asset") {
       if (action === "create") {
         const { data: created, error } = await adminSupabase.from("social_assets").insert([payload]).select().single();
@@ -182,7 +207,7 @@ export async function POST(request: Request) {
         const { data: inserted, error } = await adminSupabase.from("social_assets").insert(items).select();
         if (error) return NextResponse.json({ error: error.message }, { status: 400 });
 
-        await logAudit("BULK_CREATE", "ASSET", "BULK", `Bulk registered ${inserted?.length || 0} Social Media Assets`, { assets: inserted });
+        await logAudit("BULK_CREATE", "ASSET", "BULK", `Bulk registered ${inserted?.length || 0} Social Media Assets`, { count: inserted?.length, sample: inserted?.slice(0, 20) });
         return NextResponse.json({ success: true, count: inserted?.length || 0 });
       }
 
@@ -192,7 +217,12 @@ export async function POST(request: Request) {
         const { data: after, error } = await adminSupabase.from("social_assets").update(updateFields).eq("id", id).select().single();
         if (error) return NextResponse.json({ error: error.message }, { status: 400 });
 
-        await logAudit("UPDATE", "ASSET", id, `Updated Asset [${after.platform.toUpperCase()}] ${after.account_id}`, { before, after });
+        const statusChanged = before?.status !== after?.status;
+        const summaryText = statusChanged
+          ? `Marked Asset [${after.platform.toUpperCase()}] ${after.account_id} as ${after.status.toUpperCase()}`
+          : `Updated Asset [${after.platform.toUpperCase()}] ${after.account_id}`;
+
+        await logAudit("UPDATE", "ASSET", id, summaryText, { before, after });
         return NextResponse.json({ success: true });
       }
 
@@ -207,9 +237,6 @@ export async function POST(request: Request) {
       }
     }
 
-    // =========================================================================
-    // 3. WEEKLY METRICS CRUD & BULK ENTRY
-    // =========================================================================
     if (entity === "metric") {
       if (actor.role === "smm" && actor.is_locked) {
         return NextResponse.json({ error: "Weekly metric input is locked by your Team Leader." }, { status: 403 });
@@ -220,14 +247,6 @@ export async function POST(request: Request) {
         if (error) return NextResponse.json({ error: error.message }, { status: 400 });
         await logAudit("UPSERT", "METRIC", saved.id, `Logged weekly metrics for week ${payload.week_of}`, saved);
         return NextResponse.json({ success: true });
-      }
-
-      if (action === "bulk_upsert") {
-        const items = payload.items || [];
-        const { data: saved, error } = await adminSupabase.from("weekly_metrics").upsert(items, { onConflict: "asset_id,week_of" }).select();
-        if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-        await logAudit("BULK_UPSERT", "METRIC", "BULK", `Bulk logged ${saved?.length || 0} weekly metric reports`, { metrics: saved });
-        return NextResponse.json({ success: true, count: saved?.length || 0 });
       }
 
       if (action === "update") {

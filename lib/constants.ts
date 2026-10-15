@@ -17,6 +17,125 @@ export const ALL_COUNTRIES = [...AFRICAN_COUNTRIES, ...EURASIA_SQUAD_COUNTRIES];
 
 export type TimeHorizon = "weekly" | "monthly" | "quarterly" | "yearly";
 
+export function normalizeAuthUsername(rawInput: string, defaultRoleTag?: "smm" | "tl" | "admin"): string {
+  const clean = (rawInput || "").trim().toLowerCase().replace(/\s+/g, "");
+  if (!clean) return "";
+
+  if (!clean.includes("@")) {
+    const tag = defaultRoleTag || "smm";
+    return `${clean}@${tag}.executive.com`;
+  }
+
+  if (clean.endsWith("@smm")) return `${clean}.executive.com`;
+  if (clean.endsWith("@tl")) return `${clean}.executive.com`;
+  if (clean.endsWith("@admin")) return `${clean}.executive.com`;
+
+  const parts = clean.split("@");
+  const localPart = parts[0];
+  const domainPart = parts[1] || "";
+  if (!domainPart.includes(".")) {
+    return `${localPart}@${domainPart}.executive.com`;
+  }
+  return clean;
+}
+
+export function formatDisplayUsername(emailOrHandle?: string): string {
+  if (!emailOrHandle) return "";
+  return emailOrHandle
+    .toLowerCase()
+    .replace("@smm.executive.com", "@smm")
+    .replace("@tl.executive.com", "@tl")
+    .replace("@admin.executive.com", "@admin");
+}
+
+export function toLocalDatetimeInput(d: Date): string {
+  const tzOffsetMs = d.getTimezoneOffset() * 60000;
+  return new Date(d.getTime() - tzOffsetMs).toISOString().slice(0, 16);
+}
+
+export async function fetchAllRows(
+  supabase: any,
+  table: string,
+  orderByCol = "created_at",
+  filterCol?: string,
+  filterVal?: any,
+  maxRows = 25000
+): Promise<any[]> {
+  const PAGE_SIZE = 1000;
+  let all: any[] = [];
+  let from = 0;
+
+  while (from < maxRows) {
+    let query = supabase
+      .from(table)
+      .select("*")
+      .order(orderByCol, { ascending: false })
+      .range(from, from + PAGE_SIZE - 1);
+
+    if (filterCol && filterVal !== undefined) {
+      if (Array.isArray(filterVal)) {
+        if (filterVal.length === 0) return [];
+        query = query.in(filterCol, filterVal);
+      } else {
+        query = query.eq(filterCol, filterVal);
+      }
+    }
+
+    const { data, error } = await query;
+    if (error || !data || data.length === 0) break;
+    all = all.concat(data);
+    if (data.length < PAGE_SIZE) break;
+    from += PAGE_SIZE;
+  }
+
+  return all;
+}
+
+export async function computeLive2FACode(rawSecret?: string): Promise<string> {
+  if (!rawSecret) return "------";
+  const cleaned = rawSecret.replace(/\s+/g, "").toUpperCase();
+  if (/^\d{4,10}$/.test(cleaned)) return cleaned;
+
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+  let bits = "";
+  for (const ch of cleaned) {
+    const val = alphabet.indexOf(ch);
+    if (val === -1) return rawSecret.slice(0, 8);
+    bits += val.toString(2).padStart(5, "0");
+  }
+  const keyBytes = new Uint8Array(Math.floor(bits.length / 8));
+  for (let i = 0; i < keyBytes.length; i++) {
+    keyBytes[i] = parseInt(bits.slice(i * 8, i * 8 + 8), 2);
+  }
+  if (keyBytes.length === 0) return rawSecret.slice(0, 8);
+
+  try {
+    const epochSeconds = Math.floor(Date.now() / 1000);
+    const counter = Math.floor(epochSeconds / 30);
+    const counterBuf = new ArrayBuffer(8);
+    const view = new DataView(counterBuf);
+    view.setUint32(4, counter, false);
+
+    const cryptoKey = await window.crypto.subtle.importKey(
+      "raw",
+      keyBytes,
+      { name: "HMAC", hash: "SHA-1" },
+      false,
+      ["sign"]
+    );
+    const sig = new Uint8Array(await window.crypto.subtle.sign("HMAC", cryptoKey, counterBuf));
+    const offset = sig[sig.length - 1] & 0x0f;
+    const binary =
+      ((sig[offset] & 0x7f) << 24) |
+      ((sig[offset + 1] & 0xff) << 16) |
+      ((sig[offset + 2] & 0xff) << 8) |
+      (sig[offset + 3] & 0xff);
+    return String(binary % 1000000).padStart(6, "0");
+  } catch {
+    return rawSecret.slice(0, 8);
+  }
+}
+
 export function parseBulkRows(rawText: string): string[][] {
   return rawText
     .split(/\r?\n/)
@@ -28,7 +147,6 @@ export function parseBulkRows(rawText: string): string[][] {
     });
 }
 
-// Converts a YYYY-MM-DD date string into Weekly, Monthly, Quarterly, or Yearly bucket key
 export function getPeriodBucket(dateStr: string, horizon: TimeHorizon): string {
   if (!dateStr) return "Unknown";
   const clean = dateStr.trim();
@@ -43,7 +161,6 @@ export function getPeriodBucket(dateStr: string, horizon: TimeHorizon): string {
   return year;
 }
 
-// Aggregates raw weekly_metrics rows by (asset_id + period bucket) for Weekly/Monthly/Quarterly/Yearly views & CSVs
 export function aggregateMetricsByHorizon(metrics: any[], horizon: TimeHorizon) {
   const map = new Map<string, any>();
 
@@ -86,7 +203,6 @@ export function aggregateMetricsByHorizon(metrics: any[], horizon: TimeHorizon) 
   return Array.from(map.values()).sort((a, b) => b.period.localeCompare(a.period));
 }
 
-// Universal Multi-Horizon CSV Exporter (Weekly, Monthly, Quarterly, Yearly)
 export function exportHorizonCSV({
   horizon,
   metrics,
@@ -105,7 +221,7 @@ export function exportHorizonCSV({
   const aggregated = aggregateMetricsByHorizon(metrics, horizon);
 
   const filtered = aggregated.filter(row => {
-    const asset = assets.find(a => a.id === row.asset_id);
+    const asset: any = assets.find((a: any) => a.id === row.asset_id);
     if (!asset) return false;
     if (projectFilter !== "All" && asset.project_name !== projectFilter) return false;
     return true;
@@ -120,9 +236,9 @@ export function exportHorizonCSV({
   ];
 
   const rows = filtered.map(r => {
-    const asset = assets.find(a => a.id === r.asset_id) || {};
-    const smm = profiles.find(p => p.id === asset.smm_id) || {};
-    const tl = profiles.find(p => p.id === (asset.team_leader_id || smm.team_leader_id)) || {};
+    const asset: any = assets.find((a: any) => a.id === r.asset_id) || {};
+    const smm: any = profiles.find((p: any) => p.id === asset.smm_id) || {};
+    const tl: any = profiles.find((p: any) => p.id === (asset.team_leader_id || smm.team_leader_id)) || {};
     const engPct = r.impressions > 0 ? ((r.engagements / r.impressions) * 100).toFixed(2) : "0.00";
     const netFol = r.followers_gained - r.followers_lost;
     const days = Math.max(7, r.weeks_counted * 7);
@@ -165,7 +281,6 @@ export function exportHorizonCSV({
   document.body.removeChild(link);
 }
 
-// Computes Achievements & Badges for any set of Assets & Metrics
 export function computeAchievements(assets: any[], metrics: any[]) {
   const totalImpr = metrics.reduce((s, m) => s + Number(m.impressions || 0), 0);
   const totalEng = metrics.reduce((s, m) => s + Number(m.engagements || 0), 0);
@@ -235,38 +350,4 @@ export function computeAchievements(assets: any[], metrics: any[]) {
       stat: `${activeCount} Active Assets`
     }
   ];
-}
-
-// Converts short handles like "abebe@smm" or "josiah@tl" into Supabase-compatible auth emails under the hood
-export function normalizeAuthUsername(rawInput: string, defaultRoleTag?: "smm" | "tl" | "admin"): string {
-  const clean = (rawInput || "").trim().toLowerCase().replace(/\s+/g, "");
-  if (!clean) return "";
-
-  // If user typed just a name without @, append their role tag
-  if (!clean.includes("@")) {
-    const tag = defaultRoleTag || "smm";
-    return `${clean}@${tag}.executive.com`;
-  }
-
-  // Map @smm, @tl, @admin to valid internal domains for Supabase Auth
-  if (clean.endsWith("@smm")) return `${clean}.executive.com`;
-  if (clean.endsWith("@tl")) return `${clean}.executive.com`;
-  if (clean.endsWith("@admin")) return `${clean}.executive.com`;
-
-  // If it already has a dot after @ (like admin@executive.com), keep as is
-  const [localPart, domainPart] = clean.split("@");
-  if (!domainPart.includes(".")) {
-    return `${localPart}@${domainPart}.executive.com`;
-  }
-  return clean;
-}
-
-// Formats internal auth email back into clean "@smm" or "@tl" display handle
-export function formatDisplayUsername(emailOrHandle?: string): string {
-  if (!emailOrHandle) return "";
-  return emailOrHandle
-    .toLowerCase()
-    .replace("@smm.executive.com", "@smm")
-    .replace("@tl.executive.com", "@tl")
-    .replace("@admin.executive.com", "@admin");
 }
