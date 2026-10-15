@@ -11,17 +11,28 @@ export async function POST(request: Request) {
       auth: { autoRefreshToken: false, persistSession: false }
     });
 
-    // 1. Verify Actor Identity & Hierarchy Role
     const { data: actor } = await adminSupabase.from("profiles").select("*").eq("id", actorId).single();
     if (!actor) return NextResponse.json({ error: "Unauthorized actor." }, { status: 403 });
 
+    const logAudit = async (act: string, ent: string, entId: string, summary: string, snapshot: any) => {
+      await adminSupabase.from("audit_logs").insert([{
+        actor_id: actor.id,
+        actor_name: actor.full_name,
+        actor_role: actor.role,
+        action: act,
+        entity_type: ent,
+        entity_id: entId,
+        summary,
+        record_snapshot: snapshot || {}
+      }]);
+    };
+
     // =========================================================================
-    // ENTITY: PROFILES (PERSONNEL CRUD)
+    // 1. EMPLOYEE (PROFILES) CRUD & BULK ONBOARDING
     // =========================================================================
     if (entity === "profile") {
-      // CREATE USER (Admin can create any role; TL can onboard SMMs into their own squad)
       if (action === "create") {
-        if (actor.role === "smm") return NextResponse.json({ error: "SMMs cannot create personnel." }, { status: 403 });
+        if (actor.role === "smm") return NextResponse.json({ error: "Forbidden." }, { status: 403 });
         const targetRole = actor.role === "team_leader" ? "smm" : (payload.role || "smm");
 
         const { data: authData, error: authErr } = await adminSupabase.auth.admin.createUser({
@@ -34,29 +45,70 @@ export async function POST(request: Request) {
         const tlId = actor.role === "team_leader" ? actor.id : (payload.team_leader_id || null);
         const tlIds = actor.role === "team_leader" ? [actor.id] : (payload.team_leader_ids || (tlId ? [tlId] : []));
 
-        const { error: profErr } = await adminSupabase.from("profiles").insert([{
+        const profileRecord = {
           id: authData.user.id,
           role: targetRole,
           full_name: payload.full_name,
-          country: payload.country || "Africa",
+          country: payload.country || "Ethiopia",
           team_leader_id: targetRole === "smm" ? tlId : null,
           team_leader_ids: targetRole === "smm" ? tlIds : [],
           platforms: payload.platforms || ["twitter"]
-        }]);
+        };
 
+        const { error: profErr } = await adminSupabase.from("profiles").insert([profileRecord]);
         if (profErr) {
           await adminSupabase.auth.admin.deleteUser(authData.user.id);
           return NextResponse.json({ error: profErr.message }, { status: 400 });
         }
+
+        await logAudit("CREATE", "EMPLOYEE", authData.user.id, `Created ${targetRole.toUpperCase()} employee: ${payload.full_name} (${payload.email})`, { ...profileRecord, email: payload.email });
         return NextResponse.json({ success: true });
       }
 
-      // UPDATE USER PROFILE
-      if (action === "update") {
-        const { targetId, full_name, country, role, team_leader_id, platforms, is_locked } = payload;
-        if (actor.role === "smm" && actor.id !== targetId) {
-          return NextResponse.json({ error: "Forbidden." }, { status: 403 });
+      if (action === "bulk_create") {
+        if (actor.role === "smm") return NextResponse.json({ error: "Forbidden." }, { status: 403 });
+        const rows = payload.rows || [];
+        let createdCount = 0;
+        const errors: string[] = [];
+
+        for (const r of rows) {
+          const roleToUse = actor.role === "team_leader" ? "smm" : (r.role || "smm");
+          const { data: authData, error: authErr } = await adminSupabase.auth.admin.createUser({
+            email: r.email.toLowerCase().trim(),
+            password: r.password || "Welcome@2026!",
+            email_confirm: true
+          });
+          if (authErr || !authData?.user) {
+            errors.push(`${r.email}: ${authErr?.message || "Failed"}`);
+            continue;
+          }
+          const tlId = actor.role === "team_leader" ? actor.id : (r.team_leader_id || null);
+          const profRec = {
+            id: authData.user.id,
+            role: roleToUse,
+            full_name: r.full_name,
+            country: r.country || "Ethiopia",
+            team_leader_id: roleToUse === "smm" ? tlId : null,
+            team_leader_ids: roleToUse === "smm" && tlId ? [tlId] : [],
+            platforms: r.platforms || ["twitter"]
+          };
+          const { error: pErr } = await adminSupabase.from("profiles").insert([profRec]);
+          if (!pErr) {
+            createdCount++;
+            await logAudit("BULK_CREATE", "EMPLOYEE", authData.user.id, `Bulk onboarded ${roleToUse.toUpperCase()}: ${r.full_name} (${r.email})`, { ...profRec, email: r.email });
+          } else {
+            await adminSupabase.auth.admin.deleteUser(authData.user.id);
+            errors.push(`${r.email}: ${pErr.message}`);
+          }
         }
+        return NextResponse.json({ success: true, createdCount, errors });
+      }
+
+      if (action === "update") {
+        const { targetId, full_name, country, role, team_leader_id, team_leader_ids, platforms, is_locked, newPassword } = payload;
+        if (actor.role === "smm" && actor.id !== targetId) return NextResponse.json({ error: "Forbidden." }, { status: 403 });
+
+        const { data: before } = await adminSupabase.from("profiles").select("*").eq("id", targetId).single();
         const updateObj: any = {};
         if (full_name !== undefined) updateObj.full_name = full_name;
         if (country !== undefined) updateObj.country = country;
@@ -64,21 +116,27 @@ export async function POST(request: Request) {
         if (is_locked !== undefined && actor.role !== "smm") updateObj.is_locked = is_locked;
         if (actor.role === "admin") {
           if (role !== undefined) updateObj.role = role;
-          if (team_leader_id !== undefined) {
-            updateObj.team_leader_id = team_leader_id;
+          if (team_leader_ids !== undefined) {
+            updateObj.team_leader_ids = team_leader_ids;
+            updateObj.team_leader_id = team_leader_ids[0] || null;
+          } else if (team_leader_id !== undefined) {
+            updateObj.team_leader_id = team_leader_id || null;
             updateObj.team_leader_ids = team_leader_id ? [team_leader_id] : [];
           }
         }
+
         const { error } = await adminSupabase.from("profiles").update(updateObj).eq("id", targetId);
         if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+
+        if (newPassword && newPassword.trim().length >= 6 && (actor.role === "admin" || actor.id === targetId)) {
+          await adminSupabase.auth.admin.updateUserById(targetId, { password: newPassword.trim() });
+        }
+
+        await logAudit("UPDATE", "EMPLOYEE", targetId, `Updated employee profile: ${full_name || before?.full_name}`, { before, after: updateObj });
         return NextResponse.json({ success: true });
       }
 
-      // DETACH SMM FROM TEAM LEADER SQUAD (TL Action)
       if (action === "remove_from_squad") {
-        if (actor.role !== "team_leader" && actor.role !== "admin") {
-          return NextResponse.json({ error: "Forbidden." }, { status: 403 });
-        }
         const { targetId, tlId } = payload;
         const { data: smm } = await adminSupabase.from("profiles").select("*").eq("id", targetId).single();
         if (!smm) return NextResponse.json({ error: "SMM not found." }, { status: 404 });
@@ -89,69 +147,102 @@ export async function POST(request: Request) {
           team_leader_id: smm.team_leader_id === tlId ? nextPrimary : smm.team_leader_id,
           team_leader_ids: updatedIds
         }).eq("id", targetId);
+
+        await logAudit("DETACH_SQUAD", "EMPLOYEE", targetId, `Removed SMM ${smm.full_name} from squad`, smm);
         return NextResponse.json({ success: true });
       }
 
-      // DELETE USER PERMANENTLY (Admin Only)
       if (action === "delete") {
-        if (actor.role !== "admin") return NextResponse.json({ error: "Only Admins can permanently delete users." }, { status: 403 });
+        if (actor.role !== "admin") return NextResponse.json({ error: "Only Admins can permanently delete personnel." }, { status: 403 });
         const { targetId } = payload;
+        const { data: oldProf } = await adminSupabase.from("profiles").select("*").eq("id", targetId).single();
         const { error } = await adminSupabase.auth.admin.deleteUser(targetId);
         if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+
+        await logAudit("DELETE", "EMPLOYEE", targetId, `Permanently deleted employee: ${oldProf?.full_name || targetId}`, oldProf);
         return NextResponse.json({ success: true });
       }
     }
 
     // =========================================================================
-    // ENTITY: SOCIAL ASSETS CRUD
+    // 2. SOCIAL MEDIA ASSETS CRUD & BULK IMPORT
     // =========================================================================
     if (entity === "asset") {
       if (action === "create") {
-        const { error } = await adminSupabase.from("social_assets").insert([payload]);
+        const { data: created, error } = await adminSupabase.from("social_assets").insert([payload]).select().single();
         if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-        return NextResponse.json({ success: true });
+        await logAudit("CREATE", "ASSET", created.id, `Created [${created.platform.toUpperCase()}] Asset: ${created.account_id}`, created);
+        return NextResponse.json({ success: true, asset: created });
+      }
+
+      if (action === "bulk_create") {
+        const items = payload.items || [];
+        if (items.length === 0) return NextResponse.json({ error: "No assets provided." }, { status: 400 });
+        const { data: inserted, error } = await adminSupabase.from("social_assets").insert(items).select();
+        if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+
+        await logAudit("BULK_CREATE", "ASSET", "BULK", `Bulk registered ${inserted?.length || 0} Social Media Assets`, { assets: inserted });
+        return NextResponse.json({ success: true, count: inserted?.length || 0 });
       }
 
       if (action === "update") {
         const { id, ...updateFields } = payload;
-        const { error } = await adminSupabase.from("social_assets").update(updateFields).eq("id", id);
+        const { data: before } = await adminSupabase.from("social_assets").select("*").eq("id", id).single();
+        const { data: after, error } = await adminSupabase.from("social_assets").update(updateFields).eq("id", id).select().single();
         if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+
+        await logAudit("UPDATE", "ASSET", id, `Updated Asset [${after.platform.toUpperCase()}] ${after.account_id}`, { before, after });
         return NextResponse.json({ success: true });
       }
 
       if (action === "delete") {
         const { id } = payload;
+        const { data: oldAsset } = await adminSupabase.from("social_assets").select("*").eq("id", id).single();
         const { error } = await adminSupabase.from("social_assets").delete().eq("id", id);
         if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+
+        await logAudit("DELETE", "ASSET", id, `Deleted Asset [${oldAsset?.platform?.toUpperCase()}] ${oldAsset?.account_id}`, oldAsset);
         return NextResponse.json({ success: true });
       }
     }
 
     // =========================================================================
-    // ENTITY: WEEKLY METRICS CRUD
+    // 3. WEEKLY METRICS CRUD & BULK ENTRY
     // =========================================================================
     if (entity === "metric") {
       if (actor.role === "smm" && actor.is_locked) {
-        return NextResponse.json({ error: "Your weekly metric input is locked by your Team Leader." }, { status: 403 });
+        return NextResponse.json({ error: "Weekly metric input is locked by your Team Leader." }, { status: 403 });
       }
 
       if (action === "upsert") {
-        const { error } = await adminSupabase.from("weekly_metrics").upsert([payload], { onConflict: "asset_id,week_of" });
+        const { data: saved, error } = await adminSupabase.from("weekly_metrics").upsert([payload], { onConflict: "asset_id,week_of" }).select().single();
         if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+        await logAudit("UPSERT", "METRIC", saved.id, `Logged weekly metrics for week ${payload.week_of}`, saved);
         return NextResponse.json({ success: true });
+      }
+
+      if (action === "bulk_upsert") {
+        const items = payload.items || [];
+        const { data: saved, error } = await adminSupabase.from("weekly_metrics").upsert(items, { onConflict: "asset_id,week_of" }).select();
+        if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+        await logAudit("BULK_UPSERT", "METRIC", "BULK", `Bulk logged ${saved?.length || 0} weekly metric reports`, { metrics: saved });
+        return NextResponse.json({ success: true, count: saved?.length || 0 });
       }
 
       if (action === "update") {
         const { id, ...fields } = payload;
-        const { error } = await adminSupabase.from("weekly_metrics").update(fields).eq("id", id);
+        const { data: after, error } = await adminSupabase.from("weekly_metrics").update(fields).eq("id", id).select().single();
         if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+        await logAudit("UPDATE", "METRIC", id, `Updated weekly metric record (${after?.week_of})`, after);
         return NextResponse.json({ success: true });
       }
 
       if (action === "delete") {
         const { id } = payload;
+        const { data: oldMetric } = await adminSupabase.from("weekly_metrics").select("*").eq("id", id).single();
         const { error } = await adminSupabase.from("weekly_metrics").delete().eq("id", id);
         if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+        await logAudit("DELETE", "METRIC", id, `Deleted weekly metric log (${oldMetric?.week_of})`, oldMetric);
         return NextResponse.json({ success: true });
       }
     }

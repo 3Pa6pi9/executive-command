@@ -3,8 +3,7 @@
 import { useState, useEffect } from "react";
 import { managerSupabase as supabase } from "@/lib/supabase";
 import Link from "next/link";
-
-const PLATFORMS = ["twitter", "instagram", "facebook", "tiktok", "blog", "medium"];
+import { PLATFORMS, ALL_COUNTRIES, AFRICAN_COUNTRIES, EURASIA_SQUAD_COUNTRIES, parseBulkRows } from "@/lib/constants";
 
 export default function AdminCommandCenter() {
   const [adminProfile, setAdminProfile] = useState<any>(null);
@@ -17,62 +16,74 @@ export default function AdminCommandCenter() {
   const [profiles, setProfiles] = useState<any[]>([]);
   const [assets, setAssets] = useState<any[]>([]);
   const [metrics, setMetrics] = useState<any[]>([]);
-  
+  const [auditLogs, setAuditLogs] = useState<any[]>([]);
+
+  // Navigation Tabs & Global Search
+  const [activeTab, setActiveTab] = useState<"squads" | "employees" | "assets" | "bulk" | "vault">("squads");
+  const [globalSearch, setGlobalSearch] = useState("");
+  const [roleFilter, setRoleFilter] = useState<"all" | "admin" | "team_leader" | "smm">("all");
+  const [platformFilter, setPlatformFilter] = useState<string>("all");
+  const [projectFilter, setProjectFilter] = useState<string>("All");
+
+  // Drill-down & Slide-Over States
   const [selectedTlId, setSelectedTlId] = useState<string | null>(null);
   const [selectedSmmId, setSelectedSmmId] = useState<string | null>(null);
   const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
-  const [projectFilter, setProjectFilter] = useState<string>("All");
   const [revealedAssets, setRevealedAssets] = useState<Record<string, boolean>>({});
+  const [statusBanner, setStatusBanner] = useState("");
 
-  // Global CRUD Modals State
+  // Employee CRUD Modal States (Admin can add/edit Admin, TL, SMM)
+  const [showCreateEmpModal, setShowCreateEmpModal] = useState(false);
+  const [empRole, setEmpRole] = useState<"admin" | "team_leader" | "smm">("smm");
+  const [empName, setEmpName] = useState("");
+  const [empEmail, setEmpEmail] = useState("");
+  const [empPass, setEmpPass] = useState("");
+  const [empCountries, setEmpCountries] = useState<string[]>(["Ethiopia"]);
+  const [empPlatforms, setEmpPlatforms] = useState<string[]>(["twitter"]);
+  const [empTlIds, setEmpTlIds] = useState<string[]>([]);
   const [editingProfile, setEditingProfile] = useState<any>(null);
+
+  // Asset CRUD Modal States
+  const [showCreateAssetModal, setShowCreateAssetModal] = useState(false);
+  const [newAsset, setNewAsset] = useState({
+    smm_id: "", team_leader_id: "", platform: "twitter", project_name: "General Campaign",
+    profile_link: "", bio: "", account_id: "", account_password: "",
+    email: "", email_password: "", two_fa_code: "", country_language: "Ethiopia", phone_number: ""
+  });
   const [editingAsset, setEditingAsset] = useState<any>(null);
   const [editingMetric, setEditingMetric] = useState<any>(null);
-  const [showCreateAssetModal, setShowCreateAssetModal] = useState(false);
-  const [newAssetForm, setNewAssetForm] = useState({
-    smm_id: "", team_leader_id: "", platform: "twitter", account_id: "",
-    account_password: "", email: "", email_password: "", profile_link: "", project_name: "General Campaign"
-  });
 
-  // Executive Settings Drawer State
-  const [showSettings, setShowSettings] = useState(false);
-  const [newAdminName, setNewAdminName] = useState("");
-  const [newAdminEmail, setNewAdminEmail] = useState("");
-  const [newAdminPass, setNewAdminPass] = useState("");
-  const [newAdminRole, setNewAdminRole] = useState<"admin" | "team_leader" | "smm">("team_leader");
-  const [newAdminCountry, setNewAdminCountry] = useState("Africa");
-  const [masterNewPass, setMasterNewPass] = useState("");
-  const [adminMsg, setAdminMsg] = useState("");
+  // Bulk Data Entry States
+  const [bulkMode, setBulkMode] = useState<"assets" | "employees">("assets");
+  const [bulkText, setBulkText] = useState("");
+  const [bulkDefaultSmm, setBulkDefaultSmm] = useState("");
+  const [bulkDefaultTl, setBulkDefaultTl] = useState("");
+  const [bulkDefaultPlatform, setBulkDefaultPlatform] = useState("twitter");
+  const [bulkDefaultCountry, setBulkDefaultCountry] = useState("Ethiopia");
 
   useEffect(() => {
     let channel: any;
-    verifyAdminSession().then((isOk) => {
-      if (!isOk) return;
+    verifyAdminSession().then((ok) => {
+      if (!ok) return;
       channel = supabase
-        .channel("admin-realtime-sync")
-        .on("postgres_changes", { event: "*", schema: "public", table: "profiles" }, () => {
-          triggerPulse();
-          loadAllEnterpriseData();
-        })
-        .on("postgres_changes", { event: "*", schema: "public", table: "social_assets" }, () => {
-          triggerPulse();
-          loadAllEnterpriseData();
-        })
-        .on("postgres_changes", { event: "*", schema: "public", table: "weekly_metrics" }, () => {
-          triggerPulse();
-          loadAllEnterpriseData();
-        })
+        .channel("admin-master-realtime")
+        .on("postgres_changes", { event: "*", schema: "public", table: "profiles" }, () => { triggerPulse(); loadAllEnterpriseData(); })
+        .on("postgres_changes", { event: "*", schema: "public", table: "social_assets" }, () => { triggerPulse(); loadAllEnterpriseData(); })
+        .on("postgres_changes", { event: "*", schema: "public", table: "weekly_metrics" }, () => { triggerPulse(); loadAllEnterpriseData(); })
+        .on("postgres_changes", { event: "*", schema: "public", table: "audit_logs" }, () => { triggerPulse(); loadAllEnterpriseData(); })
         .subscribe();
     });
-
-    return () => {
-      if (channel) supabase.removeChannel(channel);
-    };
+    return () => { if (channel) supabase.removeChannel(channel); };
   }, []);
 
   const triggerPulse = () => {
     setLiveSyncPulse(true);
     setTimeout(() => setLiveSyncPulse(false), 1200);
+  };
+
+  const flashBanner = (msg: string) => {
+    setStatusBanner(msg);
+    setTimeout(() => setStatusBanner(""), 4000);
   };
 
   const verifyAdminSession = async () => {
@@ -82,11 +93,10 @@ export default function AdminCommandCenter() {
     const { data: prof } = await supabase.from("profiles").select("*").eq("id", session.user.id).single();
     if (!prof || prof.role !== "admin") {
       await supabase.auth.signOut();
-      setAuthMsg("Security Violation: Only Master Admins are permitted inside the Executive Vault.");
+      setAuthMsg("Security Violation: Master Admin clearance required.");
       setIsCheckingAuth(false);
       return false;
     }
-
     setAdminProfile(prof);
     setIsCheckingAuth(false);
     await loadAllEnterpriseData();
@@ -102,26 +112,35 @@ export default function AdminCommandCenter() {
     const { data: prof } = await supabase.from("profiles").select("*").eq("id", data.user.id).single();
     if (!prof || prof.role !== "admin") {
       await supabase.auth.signOut();
-      return setAuthMsg("Access Denied: You do not hold Admin clearance.");
+      return setAuthMsg("Access Denied: Admin clearance required.");
     }
-
     setAdminProfile(prof);
     await loadAllEnterpriseData();
   };
 
   const loadAllEnterpriseData = async () => {
-    const { data: p } = await supabase.from("profiles").select("*").order("created_at", { ascending: false });
-    const { data: a } = await supabase.from("social_assets").select("*").order("created_at", { ascending: false });
-    const { data: m } = await supabase.from("weekly_metrics").select("*").order("week_of", { ascending: false });
-    setProfiles(p || []);
-    setAssets(a || []);
-    setMetrics(m || []);
+    const [pRes, aRes, mRes, logRes] = await Promise.all([
+      supabase.from("profiles").select("*").order("created_at", { ascending: false }),
+      supabase.from("social_assets").select("*").order("created_at", { ascending: false }),
+      supabase.from("weekly_metrics").select("*").order("week_of", { ascending: false }),
+      supabase.from("audit_logs").select("*").order("created_at", { ascending: false }).limit(300)
+    ]);
+    const pList = pRes.data || [];
+    const aList = aRes.data || [];
+    setProfiles(pList);
+    setAssets(aList);
+    setMetrics(mRes.data || []);
+    setAuditLogs(logRes.data || []);
+
+    const tls = pList.filter(x => x.role === "team_leader");
+    const smms = pList.filter(x => x.role === "smm");
+    if (tls.length > 0 && !bulkDefaultTl) setBulkDefaultTl(tls[0].id);
+    if (smms.length > 0 && !bulkDefaultSmm) setBulkDefaultSmm(smms[0].id);
   };
 
-  // ADMIN CRUD: CREATE PERSONNEL
-  const handleAddPersonnel = async (e: React.FormEvent) => {
+  // EMPLOYEE CRUD: CREATE (Admin, TL, or SMM)
+  const handleCreateEmployee = async (e: React.FormEvent) => {
     e.preventDefault();
-    setAdminMsg("Creating personnel account...");
     const res = await fetch("/api/crud", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -130,30 +149,33 @@ export default function AdminCommandCenter() {
         entity: "profile",
         action: "create",
         payload: {
-          email: newAdminEmail.trim(),
-          password: newAdminPass,
-          role: newAdminRole,
-          full_name: newAdminName,
-          country: newAdminCountry,
-          team_leader_id: selectedTlId
+          role: empRole,
+          full_name: empName.trim(),
+          email: empEmail.trim(),
+          password: empPass,
+          country: empCountries.join(", "),
+          platforms: empPlatforms,
+          team_leader_id: empTlIds[0] || null,
+          team_leader_ids: empTlIds
         }
       })
     });
     const data = await res.json();
     if (res.ok) {
-      setAdminMsg(`${newAdminRole.toUpperCase()} Created Live!`);
-      setNewAdminName(""); setNewAdminEmail(""); setNewAdminPass("");
+      flashBanner(`✓ Created ${empRole.toUpperCase()} Employee: ${empName}`);
+      setEmpName(""); setEmpEmail(""); setEmpPass("");
+      setShowCreateEmpModal(false);
       loadAllEnterpriseData();
     } else {
-      setAdminMsg("Error: " + data.error);
+      alert(data.error);
     }
   };
 
-  // ADMIN CRUD: UPDATE PERSONNEL
-  const handleSaveProfileEdit = async (e: React.FormEvent) => {
+  // EMPLOYEE CRUD: UPDATE
+  const handleUpdateEmployee = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingProfile) return;
-    await fetch("/api/crud", {
+    const res = await fetch("/api/crud", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -166,113 +188,159 @@ export default function AdminCommandCenter() {
           country: editingProfile.country,
           role: editingProfile.role,
           team_leader_id: editingProfile.team_leader_id,
-          is_locked: editingProfile.is_locked
+          is_locked: editingProfile.is_locked,
+          newPassword: editingProfile.newPassword
         }
       })
     });
-    setEditingProfile(null);
-    loadAllEnterpriseData();
+    if (res.ok) {
+      flashBanner(`✓ Updated Employee: ${editingProfile.full_name}`);
+      setEditingProfile(null);
+      loadAllEnterpriseData();
+    }
   };
 
-  // ADMIN CRUD: DELETE PERSONNEL
-  const handleDeletePersonnel = async (targetId: string, name: string) => {
-    if (!confirm(`Permanently delete ${name} and all their associated records?`)) return;
+  // EMPLOYEE CRUD: DELETE
+  const handleDeleteEmployee = async (targetId: string, name: string) => {
+    if (!confirm(`Permanently delete employee "${name}"? (A permanent snapshot will remain in the Audit Vault)`)) return;
     await fetch("/api/crud", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        actorId: adminProfile.id,
-        entity: "profile",
-        action: "delete",
-        payload: { targetId }
-      })
+      body: JSON.stringify({ actorId: adminProfile.id, entity: "profile", action: "delete", payload: { targetId } })
     });
-    if (selectedTlId === targetId) setSelectedTlId(null);
-    if (selectedSmmId === targetId) setSelectedSmmId(null);
+    flashBanner(`🗑 Deleted Employee: ${name} (Archived in Audit Vault)`);
     loadAllEnterpriseData();
   };
 
-  // ADMIN CRUD: CREATE ASSET
-  const handleAdminCreateAsset = async (e: React.FormEvent) => {
+  // ASSET CRUD: CREATE
+  const handleCreateAsset = async (e: React.FormEvent) => {
     e.preventDefault();
-    await fetch("/api/crud", {
+    const res = await fetch("/api/crud", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         actorId: adminProfile.id,
         entity: "asset",
         action: "create",
-        payload: { ...newAssetForm, status: "active" }
+        payload: { ...newAsset, status: "active" }
       })
     });
-    setShowCreateAssetModal(false);
-    loadAllEnterpriseData();
+    if (res.ok) {
+      flashBanner(`✓ Created Asset [${newAsset.platform.toUpperCase()}] ${newAsset.account_id}`);
+      setShowCreateAssetModal(false);
+      loadAllEnterpriseData();
+    }
   };
 
-  // ADMIN CRUD: UPDATE ASSET
-  const handleAdminUpdateAsset = async (e: React.FormEvent) => {
+  // ASSET CRUD: UPDATE
+  const handleUpdateAsset = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingAsset) return;
     await fetch("/api/crud", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        actorId: adminProfile.id,
-        entity: "asset",
-        action: "update",
-        payload: editingAsset
-      })
+      body: JSON.stringify({ actorId: adminProfile.id, entity: "asset", action: "update", payload: editingAsset })
     });
+    flashBanner(`✓ Updated Asset: ${editingAsset.account_id}`);
     setEditingAsset(null);
     loadAllEnterpriseData();
   };
 
-  // ADMIN CRUD: DELETE ASSET
-  const handleAdminDeleteAsset = async (assetId: string) => {
-    if (!confirm("Permanently delete this Asset and its metrics?")) return;
+  // ASSET CRUD: DELETE
+  const handleDeleteAsset = async (assetId: string, handle: string) => {
+    if (!confirm(`Delete Asset "${handle}"? (Full credentials remain recoverable in the Audit Vault)`)) return;
     await fetch("/api/crud", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        actorId: adminProfile.id,
-        entity: "asset",
-        action: "delete",
-        payload: { id: assetId }
-      })
+      body: JSON.stringify({ actorId: adminProfile.id, entity: "asset", action: "delete", payload: { id: assetId } })
     });
     if (selectedAssetId === assetId) setSelectedAssetId(null);
+    flashBanner(`🗑 Deleted Asset: ${handle} (Archived in Audit Vault)`);
     loadAllEnterpriseData();
   };
 
-  // ADMIN CRUD: UPDATE & DELETE WEEKLY METRIC
+  // BULK DATA ENTRY EXECUTION (Assets or Employees)
+  const handleExecuteBulkImport = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const rows = parseBulkRows(bulkText);
+    if (rows.length === 0) return alert("Paste at least 1 row of data.");
+
+    if (bulkMode === "assets") {
+      // Expected columns: Account_ID, Password, Email, Email_Password, Profile_Link, Bio, 2FA, Phone, Country, Platform, Project
+      const items = rows.map(r => ({
+        smm_id: bulkDefaultSmm || null,
+        team_leader_id: bulkDefaultTl || null,
+        account_id: r[0] || "Pending_Handle",
+        account_password: r[1] || "",
+        email: r[2] || "",
+        email_password: r[3] || "",
+        profile_link: r[4] || "",
+        bio: r[5] || "",
+        two_fa_code: r[6] || "",
+        phone_number: r[7] || "",
+        country_language: r[8] || bulkDefaultCountry,
+        platform: (r[9] || bulkDefaultPlatform).toLowerCase(),
+        project_name: r[10] || "General Campaign",
+        status: "active"
+      }));
+
+      const res = await fetch("/api/crud", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ actorId: adminProfile.id, entity: "asset", action: "bulk_create", payload: { items } })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        flashBanner(`⚡ Bulk Imported ${data.count} Social Media Assets Live!`);
+        setBulkText("");
+        setActiveTab("assets");
+        loadAllEnterpriseData();
+      } else alert(data.error);
+    } else {
+      // Bulk Employees: Full_Name, Email, Password, Role(admin/team_leader/smm), Country
+      const empRows = rows.map(r => ({
+        full_name: r[0] || "Employee",
+        email: r[1] || "",
+        password: r[2] || "Welcome@2026!",
+        role: (r[3] || "smm").toLowerCase(),
+        country: r[4] || bulkDefaultCountry,
+        team_leader_id: bulkDefaultTl || null
+      })).filter(x => x.email.includes("@"));
+
+      const res = await fetch("/api/crud", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ actorId: adminProfile.id, entity: "profile", action: "bulk_create", payload: { rows: empRows } })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        flashBanner(`⚡ Bulk Onboarded ${data.createdCount} Employees Live!`);
+        setBulkText("");
+        setActiveTab("employees");
+        loadAllEnterpriseData();
+      } else alert(data.error);
+    }
+  };
+
+  // METRIC CRUD: UPDATE & DELETE
   const handleAdminUpdateMetric = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingMetric) return;
     await fetch("/api/crud", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        actorId: adminProfile.id,
-        entity: "metric",
-        action: "update",
-        payload: editingMetric
-      })
+      body: JSON.stringify({ actorId: adminProfile.id, entity: "metric", action: "update", payload: editingMetric })
     });
     setEditingMetric(null);
     loadAllEnterpriseData();
   };
 
   const handleAdminDeleteMetric = async (metricId: string) => {
-    if (!confirm("Delete this weekly metric log?")) return;
+    if (!confirm("Delete this weekly metric row?")) return;
     await fetch("/api/crud", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        actorId: adminProfile.id,
-        entity: "metric",
-        action: "delete",
-        payload: { id: metricId }
-      })
+      body: JSON.stringify({ actorId: adminProfile.id, entity: "metric", action: "delete", payload: { id: metricId } })
     });
     loadAllEnterpriseData();
   };
@@ -284,63 +352,34 @@ export default function AdminCommandCenter() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "batch_lock", payload: { smmIds, is_locked: lockState } })
     });
-    setAdminMsg(`Global Lock ${lockState ? "ENGAGED 🔒" : "RELEASED 🔓"} for all ${smmIds.length} SMMs!`);
-  };
-
-  const handleUpdateMasterPassword = async () => {
-    if (!masterNewPass.trim()) return;
-    await fetch("/api/settings", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        action: "update_password",
-        userId: adminProfile.id,
-        payload: { newPassword: masterNewPass.trim() }
-      })
-    });
-    setMasterNewPass("");
-    setAdminMsg("Master Admin password updated!");
+    flashBanner(`Global Lock ${lockState ? "ENGAGED 🔒" : "RELEASED 🔓"} across all ${smmIds.length} SMMs!`);
   };
 
   const handleExportMasterCSV = () => {
     const headers = [
       "Project", "Team Leader", "SMM Handler", "Platform", "Asset ID", "Status", "Asset Profile Link",
-      "Week Of", "Impressions", "Engagements", "Likes", "Reposts", "Comments",
-      "Followers Gained", "Followers Lost", "Total Followers", "Posts Published", "Top Post Impr.",
-      "Engagement %", "Net Followers", "Posts/Day"
+      "Asset Email", "Asset Country", "Week Of", "Impressions", "Engagements", "Likes", "Reposts", "Comments",
+      "Followers Gained", "Followers Lost", "Total Followers", "Posts Published", "Engagement %", "Net Followers"
     ];
-
-    const filteredMetrics = metrics.filter(m => {
-      const asset = assets.find(a => a.id === m.asset_id);
-      if (!asset) return false;
-      if (projectFilter !== "All" && asset.project_name !== projectFilter) return false;
-      if (selectedTlId && asset.team_leader_id !== selectedTlId) return false;
-      if (selectedSmmId && asset.smm_id !== selectedSmmId) return false;
-      return true;
-    });
-
-    const rows = filteredMetrics.map(m => {
+    const rows = metrics.map(m => {
       const asset = assets.find(a => a.id === m.asset_id) || {};
       const smm = profiles.find(p => p.id === asset.smm_id) || {};
       const tl = profiles.find(p => p.id === (asset.team_leader_id || smm.team_leader_id)) || {};
       const engPct = m.impressions > 0 ? ((m.engagements / m.impressions) * 100).toFixed(2) : "0.00";
       const netFol = (m.followers_gained || 0) - (m.followers_lost || 0);
-      const postsDay = ((m.posts_published || 0) / 7).toFixed(2);
-
       return [
         `"${asset.project_name || 'General'}"`, `"${tl.full_name || 'Unassigned'}"`, `"${smm.full_name || 'SMM'}"`,
         `"${asset.platform || ''}"`, `"${asset.account_id || ''}"`, `"${asset.status || ''}"`, `"${asset.profile_link || ''}"`,
-        `"${m.week_of}"`, m.impressions, m.engagements, m.likes, m.shares_reposts, m.comments,
-        m.followers_gained, m.followers_lost, m.total_followers, m.posts_published, m.top_post_impressions,
-        engPct, netFol, postsDay
+        `"${asset.email || ''}"`, `"${asset.country_language || ''}"`, `"${m.week_of}"`,
+        m.impressions, m.engagements, m.likes, m.shares_reposts, m.comments,
+        m.followers_gained, m.followers_lost, m.total_followers, m.posts_published, engPct, netFol
       ].join(",");
     });
-
     const csv = [headers.join(","), ...rows].join("\n");
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
     const link = document.createElement("a");
     link.href = URL.createObjectURL(blob);
-    link.setAttribute("download", `Enterprise_MEL_Report_${projectFilter}_${new Date().toISOString().split("T")[0]}.csv`);
+    link.setAttribute("download", `Executive_Master_Vault_${new Date().toISOString().split("T")[0]}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -357,7 +396,6 @@ export default function AdminCommandCenter() {
             <h1 className="text-3xl font-bold text-white mt-3">Admin Command Center</h1>
             <p className="text-xs text-zinc-500 mt-1">Maximum-Security Global Oversight Terminal</p>
           </div>
-
           <form onSubmit={handleAdminLogin} className="bg-zinc-950 border border-zinc-800 rounded-2xl p-8 space-y-4 shadow-2xl relative overflow-hidden">
             <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-emerald-500 via-teal-400 to-blue-500"></div>
             <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Master Admin Email" className="w-full rounded-lg bg-black border border-zinc-800 p-3 text-sm text-white outline-none" />
@@ -365,7 +403,6 @@ export default function AdminCommandCenter() {
             {authMsg && <div className="p-2.5 rounded bg-red-500/10 border border-red-500/30 text-red-400 text-xs text-center">{authMsg}</div>}
             <button type="submit" className="w-full bg-emerald-500 hover:bg-emerald-400 text-black font-bold py-3 rounded-lg text-sm">Unlock Executive Vault</button>
           </form>
-
           <div className="mt-6 text-center">
             <Link href="/" className="text-xs text-zinc-500 hover:text-purple-400">← Return to SMM Handler Portal</Link>
           </div>
@@ -376,7 +413,36 @@ export default function AdminCommandCenter() {
 
   const teamLeaders = profiles.filter(p => p.role === "team_leader");
   const allSmms = profiles.filter(p => p.role === "smm");
-  const uniqueProjects = Array.from(new Set(assets.map(a => a.project_name || "General Campaign")));
+  const q = globalSearch.toLowerCase().trim();
+
+  // Filtered Lists for Searchable CRUD & Audit Vault
+  const filteredEmployees = profiles.filter(p => {
+    const roleMatch = roleFilter === "all" || p.role === roleFilter;
+    const searchMatch = !q || (p.full_name || "").toLowerCase().includes(q) || (p.country || "").toLowerCase().includes(q) || (p.role || "").toLowerCase().includes(q);
+    return roleMatch && searchMatch;
+  });
+
+  const filteredGlobalAssets = assets.filter(a => {
+    const platMatch = platformFilter === "all" || a.platform === platformFilter;
+    const searchMatch = !q ||
+      (a.account_id || "").toLowerCase().includes(q) ||
+      (a.email || "").toLowerCase().includes(q) ||
+      (a.profile_link || "").toLowerCase().includes(q) ||
+      (a.country_language || "").toLowerCase().includes(q) ||
+      (a.project_name || "").toLowerCase().includes(q) ||
+      (a.phone_number || "").toLowerCase().includes(q);
+    return platMatch && searchMatch;
+  });
+
+  const filteredAuditLogs = auditLogs.filter(log => {
+    if (!q) return true;
+    return (
+      (log.summary || "").toLowerCase().includes(q) ||
+      (log.actor_name || "").toLowerCase().includes(q) ||
+      (log.entity_type || "").toLowerCase().includes(q) ||
+      JSON.stringify(log.record_snapshot || {}).toLowerCase().includes(q)
+    );
+  });
 
   const activeTl = teamLeaders.find(t => t.id === selectedTlId);
   const displayedSmms = selectedTlId
@@ -395,7 +461,7 @@ export default function AdminCommandCenter() {
           <div>
             <div className="flex items-center gap-2">
               <span className="text-[10px] uppercase tracking-widest bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-2.5 py-0.5 rounded-full font-bold">
-                Tier 1 — Global Master CRUD
+                Tier 1 — Executive Master CRUD & Vault
               </span>
               <span className={`text-[10px] font-mono px-2.5 py-0.5 rounded-full border flex items-center gap-1.5 transition-all ${liveSyncPulse ? "bg-emerald-500/30 border-emerald-400 text-emerald-300 scale-105" : "bg-zinc-900 border-zinc-800 text-emerald-400"}`}>
                 <span className="h-2 w-2 rounded-full bg-emerald-400 animate-ping"></span>
@@ -405,29 +471,32 @@ export default function AdminCommandCenter() {
             <h1 className="text-2xl font-bold text-white mt-1">Global Command Center</h1>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2.5">
+          <div className="flex flex-wrap items-center gap-2">
             <button
               onClick={() => {
-                setNewAssetForm({
-                  ...newAssetForm,
+                setEmpRole("smm");
+                if (teamLeaders.length > 0 && empTlIds.length === 0) setEmpTlIds([teamLeaders[0].id]);
+                setShowCreateEmpModal(true);
+              }}
+              className="px-3.5 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg text-xs transition-all shadow-[0_0_15px_rgba(37,99,235,0.3)]"
+            >
+              + Add Employee (Admin / TL / SMM)
+            </button>
+            <button
+              onClick={() => {
+                setNewAsset({
+                  ...newAsset,
                   team_leader_id: selectedTlId || (teamLeaders[0]?.id ?? ""),
                   smm_id: selectedSmmId || (allSmms[0]?.id ?? "")
                 });
                 setShowCreateAssetModal(true);
               }}
-              className="px-3.5 py-2 bg-purple-600 hover:bg-purple-500 text-white font-bold rounded-lg text-xs"
+              className="px-3.5 py-2 bg-purple-600 hover:bg-purple-500 text-white font-bold rounded-lg text-xs transition-all shadow-[0_0_15px_rgba(147,51,234,0.3)]"
             >
-              + Create Asset
+              + Add Asset
             </button>
-            <select value={projectFilter} onChange={(e) => setProjectFilter(e.target.value)} className="rounded-lg bg-zinc-900 border border-zinc-800 px-3 py-2 text-xs text-white outline-none">
-              <option value="All">All Campaigns</option>
-              {uniqueProjects.map(proj => <option key={proj} value={proj}>{proj}</option>)}
-            </select>
-            <button onClick={handleExportMasterCSV} className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-black font-bold rounded-lg text-xs transition-all">
+            <button onClick={handleExportMasterCSV} className="px-3.5 py-2 bg-emerald-500 hover:bg-emerald-400 text-black font-bold rounded-lg text-xs transition-all">
               ⬇ Export Master CSV
-            </button>
-            <button onClick={() => setShowSettings(true)} className="px-4 py-2 bg-zinc-900 border border-zinc-700 hover:border-emerald-500 rounded-lg text-xs font-bold text-emerald-400">
-              ⚙ Personnel & System CRUD
             </button>
             <button onClick={async () => { await supabase.auth.signOut(); setAdminProfile(null); }} className="px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-lg text-xs text-zinc-400 hover:text-red-400">
               Sign Out
@@ -435,167 +504,143 @@ export default function AdminCommandCenter() {
           </div>
         </div>
 
-        {/* VIEW 1: TEAM LEADER GRID WITH INLINE EDIT / DELETE */}
-        {!selectedTlId ? (
-          <div className="space-y-4">
-            <div className="flex justify-between items-center">
-              <p className="text-xs uppercase tracking-wider font-bold text-zinc-400">
-                Select any Team Leader to open their squad workspace (Or Edit / Delete TL inline)
-              </p>
-              <span className="text-xs text-zinc-500 font-mono">{teamLeaders.length} Squad Commanders • {allSmms.length} SMMs • {assets.length} Assets</span>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {teamLeaders.map(tl => {
-                const tlSmms = allSmms.filter(s => s.team_leader_id === tl.id || (s.team_leader_ids && s.team_leader_ids.includes(tl.id)));
-                const tlAssets = assets.filter(a => a.team_leader_id === tl.id || tlSmms.some(s => s.id === a.smm_id));
-                const tlAssetIds = tlAssets.map(a => a.id);
-                const tlLogs = metrics.filter(m => tlAssetIds.includes(m.asset_id));
-                const impr = tlLogs.reduce((sum, x) => sum + (x.impressions || 0), 0);
-                const eng = tlLogs.reduce((sum, x) => sum + (x.engagements || 0), 0);
-
-                return (
-                  <div
-                    key={tl.id}
-                    onClick={() => { setSelectedTlId(tl.id); setSelectedSmmId(null); setSelectedAssetId(null); }}
-                    className="group cursor-pointer rounded-2xl p-6 bg-zinc-950 border border-zinc-800/90 hover:border-emerald-500 hover:-translate-y-1 transition-all duration-200"
-                  >
-                    <div className="flex justify-between items-center">
-                      <h3 className="font-bold text-xl text-white group-hover:text-emerald-300">{tl.full_name}</h3>
-                      <span className="text-[11px] px-2.5 py-0.5 rounded-full font-bold bg-blue-500/15 text-blue-300 border border-blue-500/30">
-                        {tlSmms.length} SMMs • {tlAssets.length} Assets
-                      </span>
-                    </div>
-
-                    <p className="text-xs text-zinc-500 mt-1">Regions: {tl.country}</p>
-
-                    <div className="mt-5 space-y-2.5">
-                      <div>
-                        <div className="flex justify-between text-xs font-mono mb-1">
-                          <span className="text-zinc-400">Impressions</span>
-                          <span className="text-blue-400 font-bold">{impr.toLocaleString()}</span>
-                        </div>
-                        <div className="w-full h-1.5 bg-zinc-900 rounded-full overflow-hidden">
-                          <div className="h-full bg-gradient-to-r from-blue-500 to-cyan-400" style={{ width: `${Math.min(100, Math.max(6, (impr / 100000) * 100))}%` }}></div>
-                        </div>
-                      </div>
-                      <div>
-                        <div className="flex justify-between text-xs font-mono mb-1">
-                          <span className="text-zinc-400">Engagements</span>
-                          <span className="text-purple-400 font-bold">{eng.toLocaleString()}</span>
-                        </div>
-                        <div className="w-full h-1.5 bg-zinc-900 rounded-full overflow-hidden">
-                          <div className="h-full bg-gradient-to-r from-purple-500 to-pink-500" style={{ width: `${Math.min(100, Math.max(6, (eng / 10000) * 100))}%` }}></div>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="mt-5 pt-3 border-t border-zinc-900 flex justify-between items-center text-xs">
-                      <div className="space-x-3" onClick={(e) => e.stopPropagation()}>
-                        <button onClick={() => setEditingProfile({ ...tl })} className="text-emerald-400 hover:underline font-bold">✎ Edit TL</button>
-                        <button onClick={() => handleDeletePersonnel(tl.id, tl.full_name)} className="text-red-400 hover:underline font-bold">🗑 Delete</button>
-                      </div>
-                      <span className="text-zinc-400 group-hover:text-emerald-300 font-bold">Open Squad →</span>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+        {statusBanner && (
+          <div className="p-3 rounded-xl bg-emerald-500/15 border border-emerald-500/40 text-emerald-300 text-xs font-bold text-center animate-pulse">
+            {statusBanner}
           </div>
-        ) : (
-          /* VIEW 2: IN-PLACE TEAM LEADER WORKSPACE WITH SMM & ASSET CRUD */
-          activeTl && (
-            <div className="space-y-6">
-              <div className="flex flex-wrap items-center justify-between gap-3 bg-zinc-950 border border-zinc-800 p-3 rounded-xl">
-                <button
-                  onClick={() => { setSelectedTlId(null); setSelectedSmmId(null); setSelectedAssetId(null); }}
-                  className="px-3.5 py-2 rounded-lg bg-emerald-500/15 border border-emerald-500/40 text-emerald-300 hover:bg-emerald-500 hover:text-black font-bold text-xs transition-all"
-                >
-                  ← All Team Leaders
-                </button>
+        )}
 
-                <div className="flex flex-wrap gap-1.5">
-                  {teamLeaders.map(tl => (
-                    <button
+        {/* Global Omnisearch + 5-Mode Navigation Bar */}
+        <div className="flex flex-wrap items-center justify-between gap-3 bg-zinc-950 border border-zinc-800 p-3 rounded-2xl">
+          <div className="flex flex-wrap gap-1.5">
+            <button onClick={() => setActiveTab("squads")} className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all ${activeTab === "squads" ? "bg-emerald-500 text-black shadow-[0_0_15px_rgba(16,185,129,0.35)]" : "bg-zinc-900 text-zinc-400 hover:text-white"}`}>
+              🛡 Squads Drill-Down ({teamLeaders.length})
+            </button>
+            <button onClick={() => setActiveTab("employees")} className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all ${activeTab === "employees" ? "bg-blue-500 text-white shadow-[0_0_15px_rgba(59,130,246,0.35)]" : "bg-zinc-900 text-zinc-400 hover:text-white"}`}>
+              👥 Employees CRUD ({profiles.length})
+            </button>
+            <button onClick={() => setActiveTab("assets")} className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all ${activeTab === "assets" ? "bg-purple-600 text-white shadow-[0_0_15px_rgba(147,51,234,0.35)]" : "bg-zinc-900 text-zinc-400 hover:text-white"}`}>
+              🗂 Global Assets CRUD ({assets.length})
+            </button>
+            <button onClick={() => setActiveTab("bulk")} className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all ${activeTab === "bulk" ? "bg-amber-500 text-black shadow-[0_0_15px_rgba(245,158,11,0.35)]" : "bg-zinc-900 text-amber-400 border border-amber-500/30"}`}>
+              ⚡ Bulk Data Entry
+            </button>
+            <button onClick={() => setActiveTab("vault")} className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all ${activeTab === "vault" ? "bg-teal-400 text-black" : "bg-zinc-900 text-zinc-400 hover:text-white"}`}>
+              📜 Permanent Record & Audit Finder ({auditLogs.length})
+            </button>
+          </div>
+
+          <div className="flex-1 min-w-[260px] max-w-md relative">
+            <input
+              type="text"
+              value={globalSearch}
+              onChange={(e) => setGlobalSearch(e.target.value)}
+              placeholder="🔍 Instant Search any Employee, @Handle, Email, Phone, Country, or Audit Log..."
+              className="w-full rounded-xl bg-black border border-zinc-700 focus:border-emerald-400 px-3.5 py-2 text-xs text-white outline-none"
+            />
+            {globalSearch && (
+              <button onClick={() => setGlobalSearch("")} className="absolute right-2.5 top-2 text-xs text-zinc-400 hover:text-white">✕</button>
+            )}
+          </div>
+        </div>
+
+        {/* ===================================================================== */}
+        {/* TAB 1: SQUADS DRILL-DOWN (IN-PLACE ZERO-SCROLL MORPHING)              */}
+        {/* ===================================================================== */}
+        {activeTab === "squads" && (
+          !selectedTlId ? (
+            <div className="space-y-4">
+              <div className="flex flex-wrap justify-between items-center gap-2">
+                <p className="text-xs uppercase tracking-wider font-bold text-zinc-400">
+                  Click any Team Leader card to morph into their Squad Workspace in-place
+                </p>
+                <div className="flex gap-2">
+                  <button onClick={() => handleGlobalLockAll(true)} className="px-3 py-1 bg-red-500/15 border border-red-500/40 text-red-400 rounded-lg text-xs font-bold hover:bg-red-500 hover:text-black transition-all">
+                    🔒 Lock All Agency SMMs
+                  </button>
+                  <button onClick={() => handleGlobalLockAll(false)} className="px-3 py-1 bg-emerald-500/15 border border-emerald-500/40 text-emerald-400 rounded-lg text-xs font-bold hover:bg-emerald-500 hover:text-black transition-all">
+                    🔓 Unlock All Agency SMMs
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {teamLeaders.filter(t => !q || t.full_name.toLowerCase().includes(q) || (t.country || "").toLowerCase().includes(q)).map(tl => {
+                  const tlSmms = allSmms.filter(s => s.team_leader_id === tl.id || (s.team_leader_ids && s.team_leader_ids.includes(tl.id)));
+                  const tlAssets = assets.filter(a => a.team_leader_id === tl.id || tlSmms.some(s => s.id === a.smm_id));
+                  const tlAssetIds = tlAssets.map(a => a.id);
+                  const tlLogs = metrics.filter(m => tlAssetIds.includes(m.asset_id));
+                  const impr = tlLogs.reduce((sum, x) => sum + (x.impressions || 0), 0);
+                  const eng = tlLogs.reduce((sum, x) => sum + (x.engagements || 0), 0);
+
+                  return (
+                    <div
                       key={tl.id}
                       onClick={() => { setSelectedTlId(tl.id); setSelectedSmmId(null); setSelectedAssetId(null); }}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                        selectedTlId === tl.id ? "bg-blue-600 text-white" : "bg-zinc-900 text-zinc-400 hover:text-white"
-                      }`}
+                      className="group cursor-pointer rounded-2xl p-6 bg-zinc-950 border border-zinc-800 hover:border-emerald-500 hover:-translate-y-1 hover:shadow-[0_12px_35px_-10px_rgba(16,185,129,0.3)] transition-all duration-200"
                     >
-                      {tl.full_name}
-                    </button>
-                  ))}
-                </div>
-              </div>
+                      <div className="flex justify-between items-center">
+                        <h3 className="font-bold text-xl text-white group-hover:text-emerald-300">{tl.full_name}</h3>
+                        <span className="text-[11px] px-2.5 py-0.5 rounded-full font-bold bg-blue-500/15 text-blue-300 border border-blue-500/30">
+                          {tlSmms.length} SMMs • {tlAssets.length} Assets
+                        </span>
+                      </div>
+                      <p className="text-xs text-zinc-400 mt-1 truncate">Countries: {tl.country}</p>
 
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <div className="lg:col-span-1 bg-zinc-950 border border-blue-500/40 rounded-2xl p-6 space-y-4">
-                  <div className="flex justify-between items-center">
-                    <span className="text-[10px] uppercase tracking-widest bg-blue-500/20 text-blue-300 px-2.5 py-1 rounded-full font-bold">
-                      Active Squad Commander
-                    </span>
-                    <button onClick={() => setEditingProfile({ ...activeTl })} className="text-xs text-emerald-400 underline font-bold">✎ Edit TL</button>
-                  </div>
-                  <h2 className="text-3xl font-bold text-white">{activeTl.full_name}</h2>
-                  <p className="text-xs text-zinc-400">Assigned Countries: {activeTl.country}</p>
-                  <div className="grid grid-cols-2 gap-3 pt-2">
-                    <div className="bg-black border border-zinc-800 p-3 rounded-xl">
-                      <span className="text-[10px] text-zinc-500 block">SQUAD SMMs</span>
-                      <span className="text-2xl font-bold text-blue-400 font-mono">{displayedSmms.length}</span>
-                    </div>
-                    <div className="bg-black border border-zinc-800 p-3 rounded-xl">
-                      <span className="text-[10px] text-zinc-500 block">SQUAD ASSETS</span>
-                      <span className="text-2xl font-bold text-purple-400 font-mono">
-                        {assets.filter(a => a.team_leader_id === activeTl.id || displayedSmms.some(s => s.id === a.smm_id)).length}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="lg:col-span-2 bg-zinc-950 border border-zinc-800 rounded-2xl p-6 space-y-3">
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-400">
-                    {activeTl.full_name}&apos;s Squad Performance Chart
-                  </h3>
-                  {displayedSmms.length > 0 ? (
-                    <div className="space-y-3 pt-1">
-                      {displayedSmms.map(smm => {
-                        const smmAssets = assets.filter(a => a.smm_id === smm.id);
-                        const smmLogs = metrics.filter(m => smmAssets.some(a => a.id === m.asset_id));
-                        const totalImpr = smmLogs.reduce((s, x) => s + (x.impressions || 0), 0);
-                        const maxSquadImpr = Math.max(1000, ...displayedSmms.map(m => {
-                          const mAssets = assets.filter(a => a.smm_id === m.id);
-                          return metrics.filter(log => mAssets.some(a => a.id === log.asset_id)).reduce((s, x) => s + (x.impressions || 0), 0);
-                        }));
-                        const widthPct = Math.min(100, Math.max(5, Math.round((totalImpr / maxSquadImpr) * 100)));
-
-                        return (
-                          <div key={smm.id} onClick={() => setSelectedSmmId(selectedSmmId === smm.id ? null : smm.id)} className="cursor-pointer group">
-                            <div className="flex justify-between text-xs font-mono mb-1">
-                              <span className="text-white group-hover:text-blue-400 font-bold">{smm.full_name} ({smmAssets.length} Assets)</span>
-                              <span className="text-blue-400 font-bold">{totalImpr.toLocaleString()} Impr.</span>
-                            </div>
-                            <div className="w-full h-3 bg-zinc-900 rounded-full overflow-hidden p-0.5">
-                              <div className="h-full rounded-full bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-500 transition-all duration-700" style={{ width: `${widthPct}%` }}></div>
-                            </div>
+                      <div className="mt-5 space-y-2.5">
+                        <div>
+                          <div className="flex justify-between text-xs font-mono mb-1">
+                            <span className="text-zinc-400">Impressions</span>
+                            <span className="text-blue-400 font-bold">{impr.toLocaleString()}</span>
                           </div>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <div className="text-xs text-zinc-500 py-8 text-center">No SMMs registered under {activeTl.full_name} yet.</div>
-                  )}
-                </div>
-              </div>
+                          <div className="w-full h-1.5 bg-zinc-900 rounded-full overflow-hidden">
+                            <div className="h-full bg-gradient-to-r from-blue-500 to-cyan-400" style={{ width: `${Math.min(100, Math.max(6, (impr / 100000) * 100))}%` }}></div>
+                          </div>
+                        </div>
+                        <div>
+                          <div className="flex justify-between text-xs font-mono mb-1">
+                            <span className="text-zinc-400">Engagements</span>
+                            <span className="text-purple-400 font-bold">{eng.toLocaleString()}</span>
+                          </div>
+                          <div className="w-full h-1.5 bg-zinc-900 rounded-full overflow-hidden">
+                            <div className="h-full bg-gradient-to-r from-purple-500 to-pink-500" style={{ width: `${Math.min(100, Math.max(6, (eng / 10000) * 100))}%` }}></div>
+                          </div>
+                        </div>
+                      </div>
 
-              <div className="space-y-3">
-                <div className="flex justify-between items-center">
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-blue-400">
-                    SMM Handlers Under {activeTl.full_name} (Click SMM to Unfold Assets • Edit or Delete Inline)
-                  </h3>
-                  <button onClick={() => { setNewAdminRole("smm"); setShowSettings(true); }} className="text-xs text-emerald-400 font-bold underline">
-                    + Create SMM Under {activeTl.full_name}
+                      <div className="mt-5 pt-3 border-t border-zinc-900 flex justify-between items-center text-xs">
+                        <div className="space-x-3" onClick={(e) => e.stopPropagation()}>
+                          <button onClick={() => setEditingProfile({ ...tl })} className="text-emerald-400 hover:underline font-bold">✎ Edit TL</button>
+                          <button onClick={() => handleDeleteEmployee(tl.id, tl.full_name)} className="text-red-400 hover:underline font-bold">🗑 Delete</button>
+                        </div>
+                        <span className="text-zinc-400 group-hover:text-emerald-300 font-bold">Open Squad →</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ) : (
+            activeTl && (
+              <div className="space-y-6">
+                <div className="flex flex-wrap items-center justify-between gap-3 bg-zinc-950 border border-zinc-800 p-3 rounded-xl">
+                  <button
+                    onClick={() => { setSelectedTlId(null); setSelectedSmmId(null); setSelectedAssetId(null); }}
+                    className="px-3.5 py-2 rounded-lg bg-emerald-500/15 border border-emerald-500/40 text-emerald-300 hover:bg-emerald-500 hover:text-black font-bold text-xs transition-all"
+                  >
+                    ← All Team Leaders
                   </button>
+                  <div className="flex flex-wrap gap-1.5">
+                    {teamLeaders.map(tl => (
+                      <button
+                        key={tl.id}
+                        onClick={() => { setSelectedTlId(tl.id); setSelectedSmmId(null); setSelectedAssetId(null); }}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${selectedTlId === tl.id ? "bg-blue-600 text-white" : "bg-zinc-900 text-zinc-400 hover:text-white"}`}
+                      >
+                        {tl.full_name}
+                      </button>
+                    ))}
+                  </div>
                 </div>
 
                 <div className="space-y-3">
@@ -605,27 +650,21 @@ export default function AdminCommandCenter() {
                     const smmLogs = metrics.filter(m => smmAssets.some(a => a.id === m.asset_id));
                     const totalImpr = smmLogs.reduce((s, x) => s + (x.impressions || 0), 0);
                     const totalEng = smmLogs.reduce((s, x) => s + (x.engagements || 0), 0);
-                    const totalFol = smmLogs.reduce((s, x) => s + (x.total_followers || 0), 0);
 
                     return (
                       <div key={smm.id} className={`rounded-2xl border transition-all ${isSmmOpen ? "bg-zinc-950 border-blue-500" : "bg-zinc-950/80 border-zinc-800"}`}>
-                        <div
-                          onClick={() => setSelectedSmmId(isSmmOpen ? null : smm.id)}
-                          className="cursor-pointer p-5 flex flex-wrap justify-between items-center gap-4"
-                        >
+                        <div onClick={() => setSelectedSmmId(isSmmOpen ? null : smm.id)} className="cursor-pointer p-5 flex flex-wrap justify-between items-center gap-4">
                           <div>
                             <h4 className="font-bold text-lg text-white">{smm.full_name}</h4>
-                            <p className="text-xs text-zinc-400">Countries: {smm.country} • Input: {smm.is_locked ? "🔒 Locked" : "🔓 Open"}</p>
+                            <p className="text-xs text-zinc-400">Countries: {smm.country} • Status: {smm.is_locked ? "🔒 Locked" : "🔓 Open"}</p>
                           </div>
-
                           <div className="flex items-center gap-5 font-mono text-xs">
                             <div><span className="text-zinc-500 block text-[10px]">ASSETS</span><span className="text-purple-400 font-bold text-sm">{smmAssets.length}</span></div>
                             <div><span className="text-zinc-500 block text-[10px]">IMPR</span><span className="text-blue-400 font-bold text-sm">{totalImpr.toLocaleString()}</span></div>
                             <div><span className="text-zinc-500 block text-[10px]">ENG</span><span className="text-purple-400 font-bold text-sm">{totalEng.toLocaleString()}</span></div>
-                            <div><span className="text-zinc-500 block text-[10px]">FOLLOWERS</span><span className="text-emerald-400 font-bold text-sm">{totalFol.toLocaleString()}</span></div>
                             <div className="space-x-2 font-sans" onClick={(e) => e.stopPropagation()}>
                               <button onClick={() => setEditingProfile({ ...smm })} className="px-2.5 py-1 rounded bg-zinc-900 border border-zinc-700 text-emerald-400 font-bold">✎ Edit</button>
-                              <button onClick={() => handleDeletePersonnel(smm.id, smm.full_name)} className="px-2.5 py-1 rounded bg-zinc-900 border border-zinc-700 text-red-400 font-bold">🗑 Delete</button>
+                              <button onClick={() => handleDeleteEmployee(smm.id, smm.full_name)} className="px-2.5 py-1 rounded bg-zinc-900 border border-zinc-700 text-red-400 font-bold">🗑 Delete</button>
                             </div>
                             <span className="px-3 py-1.5 rounded-lg bg-zinc-900 border border-zinc-700 text-zinc-300 font-sans font-bold">
                               {isSmmOpen ? "Hide ▲" : `Assets (${smmAssets.length}) ▼`}
@@ -637,33 +676,22 @@ export default function AdminCommandCenter() {
                           <div className="p-5 pt-0 border-t border-zinc-800/80 bg-black/50 rounded-b-2xl">
                             <div className="pt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
                               {smmAssets.map(asset => (
-                                <div
-                                  key={asset.id}
-                                  onClick={() => setSelectedAssetId(asset.id)}
-                                  className="group cursor-pointer bg-zinc-950 border border-zinc-800 hover:border-purple-500 p-4 rounded-xl space-y-2 transition-all"
-                                >
+                                <div key={asset.id} onClick={() => setSelectedAssetId(asset.id)} className="cursor-pointer bg-zinc-950 border border-zinc-800 hover:border-purple-500 p-4 rounded-xl space-y-2 transition-all">
                                   <div className="flex justify-between items-center">
-                                    <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-purple-500/20 text-purple-300">
-                                      ASSET: {asset.platform}
-                                    </span>
-                                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${asset.status === "active" ? "bg-emerald-500/20 text-emerald-400" : "bg-red-500/20 text-red-400"}`}>
-                                      {asset.status.toUpperCase()}
-                                    </span>
+                                    <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-purple-500/20 text-purple-300">ASSET: {asset.platform}</span>
+                                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${asset.status === "active" ? "bg-emerald-500/20 text-emerald-400" : "bg-red-500/20 text-red-400"}`}>{asset.status.toUpperCase()}</span>
                                   </div>
                                   <h5 className="font-bold text-white text-base">{asset.account_id}</h5>
-                                  <p className="text-xs text-zinc-500 truncate">{asset.profile_link || "Pending Profile Link"}</p>
+                                  <p className="text-xs text-zinc-500 truncate">{asset.profile_link || "Pending URL"}</p>
                                   <div className="pt-2 flex justify-between items-center text-[11px]" onClick={(e) => e.stopPropagation()}>
                                     <div className="space-x-2">
                                       <button onClick={() => setEditingAsset({ ...asset })} className="text-emerald-400 hover:underline font-bold">✎ Edit</button>
-                                      <button onClick={() => handleAdminDeleteAsset(asset.id)} className="text-red-400 hover:underline font-bold">🗑 Delete</button>
+                                      <button onClick={() => handleDeleteAsset(asset.id, asset.account_id)} className="text-red-400 hover:underline font-bold">🗑 Delete</button>
                                     </div>
-                                    <button onClick={() => setSelectedAssetId(asset.id)} className="text-purple-400 font-bold">Vault & Logs →</button>
+                                    <button onClick={() => setSelectedAssetId(asset.id)} className="text-purple-400 font-bold">Inspect Vault →</button>
                                   </div>
                                 </div>
                               ))}
-                              {smmAssets.length === 0 && (
-                                <div className="col-span-3 text-xs text-zinc-500 py-4 text-center">No Assets registered by {smm.full_name} yet.</div>
-                              )}
                             </div>
                           </div>
                         )}
@@ -672,32 +700,366 @@ export default function AdminCommandCenter() {
                   })}
                 </div>
               </div>
-            </div>
+            )
           )
+        )}
+
+        {/* ===================================================================== */}
+        {/* TAB 2: EMPLOYEES CRUD TABLE (ADMIN, TEAM LEADERS, SMM HANDLERS)       */}
+        {/* ===================================================================== */}
+        {activeTab === "employees" && (
+          <div className="bg-zinc-950 border border-zinc-800 rounded-2xl p-6 space-y-4">
+            <div className="flex flex-wrap justify-between items-center gap-3">
+              <div>
+                <h2 className="text-lg font-bold text-white">Global Employees Directory — Full CRUD</h2>
+                <p className="text-xs text-zinc-400">Create, Read, Update, Reassign, Lock, or Delete Admins, Team Leaders, and SMM Handlers</p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {(["all", "admin", "team_leader", "smm"] as const).map(r => (
+                  <button key={r} onClick={() => setRoleFilter(r)} className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase ${roleFilter === r ? "bg-blue-600 text-white" : "bg-zinc-900 text-zinc-400"}`}>
+                    {r === "all" ? `All (${profiles.length})` : r.replace("_", " ")}
+                  </button>
+                ))}
+                <button onClick={() => setShowCreateEmpModal(true)} className="px-4 py-1.5 bg-emerald-500 text-black font-bold rounded-lg text-xs">
+                  + Create Employee
+                </button>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto border border-zinc-800 rounded-xl">
+              <table className="w-full text-left text-xs text-zinc-300">
+                <thead className="bg-zinc-900 text-zinc-400 uppercase">
+                  <tr>
+                    <th className="p-3.5">Full Name</th>
+                    <th className="p-3.5">Role</th>
+                    <th className="p-3.5">Operational Countries</th>
+                    <th className="p-3.5">Assigned Team Leader</th>
+                    <th className="p-3.5">Assets Managed</th>
+                    <th className="p-3.5">Input Status</th>
+                    <th className="p-3.5 text-right">CRUD Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-800 bg-black">
+                  {filteredEmployees.map(emp => {
+                    const tl = teamLeaders.find(t => t.id === emp.team_leader_id);
+                    const empAssetCount = assets.filter(a => a.smm_id === emp.id || a.team_leader_id === emp.id).length;
+                    return (
+                      <tr key={emp.id} className="hover:bg-zinc-900/50 transition-colors">
+                        <td className="p-3.5 font-bold text-white">{emp.full_name}</td>
+                        <td className="p-3.5">
+                          <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                            emp.role === "admin" ? "bg-emerald-500/20 text-emerald-300" : emp.role === "team_leader" ? "bg-blue-500/20 text-blue-300" : "bg-purple-500/20 text-purple-300"
+                          }`}>
+                            {emp.role.replace("_", " ")}
+                          </span>
+                        </td>
+                        <td className="p-3.5 text-zinc-300 max-w-xs truncate">{emp.country}</td>
+                        <td className="p-3.5 text-blue-400">{emp.role === "smm" ? (tl?.full_name || "Unassigned") : "—"}</td>
+                        <td className="p-3.5 font-mono font-bold text-purple-400">{empAssetCount}</td>
+                        <td className="p-3.5">
+                          {emp.role === "smm" ? (
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${emp.is_locked ? "bg-red-500/20 text-red-400" : "bg-emerald-500/20 text-emerald-400"}`}>
+                              {emp.is_locked ? "🔒 LOCKED" : "🔓 OPEN"}
+                            </span>
+                          ) : "—"}
+                        </td>
+                        <td className="p-3.5 text-right space-x-2">
+                          <button onClick={() => setEditingProfile({ ...emp })} className="px-2.5 py-1 rounded bg-zinc-900 border border-zinc-700 text-emerald-400 font-bold hover:border-emerald-500">
+                            ✎ Edit
+                          </button>
+                          {emp.id !== adminProfile.id && (
+                            <button onClick={() => handleDeleteEmployee(emp.id, emp.full_name)} className="px-2.5 py-1 rounded bg-zinc-900 border border-zinc-700 text-red-400 font-bold hover:border-red-500">
+                              🗑 Delete
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* ===================================================================== */}
+        {/* TAB 3: GLOBAL ASSETS CRUD TABLE (FIND & EDIT ANY ASSET INSTANTLY)     */}
+        {/* ===================================================================== */}
+        {activeTab === "assets" && (
+          <div className="bg-zinc-950 border border-zinc-800 rounded-2xl p-6 space-y-4">
+            <div className="flex flex-wrap justify-between items-center gap-3">
+              <div>
+                <h2 className="text-lg font-bold text-white">Global Social Media Assets Vault — Full CRUD ({filteredGlobalAssets.length})</h2>
+                <p className="text-xs text-zinc-400">Every asset across all 6 platforms with instant credential reveal, reassignment, and editing</p>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                <button onClick={() => setPlatformFilter("all")} className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase ${platformFilter === "all" ? "bg-purple-600 text-white" : "bg-zinc-900 text-zinc-400"}`}>
+                  All ({assets.length})
+                </button>
+                {PLATFORMS.map(p => (
+                  <button key={p} onClick={() => setPlatformFilter(p)} className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase ${platformFilter === p ? "bg-purple-600 text-white" : "bg-zinc-900 text-zinc-400"}`}>
+                    {p}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="overflow-x-auto border border-zinc-800 rounded-xl">
+              <table className="w-full text-left text-xs text-zinc-300">
+                <thead className="bg-zinc-900 text-zinc-400 uppercase">
+                  <tr>
+                    <th className="p-3">Platform</th>
+                    <th className="p-3">Asset ID (@Handle)</th>
+                    <th className="p-3">SMM / TL</th>
+                    <th className="p-3">Country</th>
+                    <th className="p-3">Credentials (Pass / Email / 2FA)</th>
+                    <th className="p-3">Status</th>
+                    <th className="p-3 text-right">CRUD Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-800 bg-black font-mono">
+                  {filteredGlobalAssets.map(asset => {
+                    const smm = profiles.find(p => p.id === asset.smm_id);
+                    const tl = profiles.find(p => p.id === asset.team_leader_id);
+                    const isRev = !!revealedAssets[asset.id];
+                    return (
+                      <tr key={asset.id} className="hover:bg-zinc-900/50 transition-colors">
+                        <td className="p-3 font-sans">
+                          <span className="px-2 py-0.5 rounded bg-purple-500/20 text-purple-300 font-bold uppercase text-[10px]">{asset.platform}</span>
+                        </td>
+                        <td className="p-3 font-bold text-white">
+                          <div>{asset.account_id}</div>
+                          {asset.profile_link && <a href={asset.profile_link} target="_blank" className="text-[10px] text-blue-400 underline font-sans">Open Profile ↗</a>}
+                        </td>
+                        <td className="p-3 font-sans">
+                          <div className="text-white font-bold">{smm?.full_name || "Unassigned"}</div>
+                          <div className="text-[10px] text-blue-400">TL: {tl?.full_name || "N/A"}</div>
+                        </td>
+                        <td className="p-3 font-sans text-emerald-300">{asset.country_language || "N/A"}</td>
+                        <td className="p-3 text-[11px]">
+                          <div>Pass: <span className={isRev ? "text-emerald-400" : "blur-[4px] select-none"}>{asset.account_password || "N/A"}</span></div>
+                          <div>Email: {asset.email || "N/A"} (<span className={isRev ? "text-emerald-400" : "blur-[4px] select-none"}>{asset.email_password || "N/A"}</span>)</div>
+                          <div>2FA: <span className={isRev ? "text-amber-300" : "blur-[4px] select-none"}>{asset.two_fa_code || "None"}</span> • Tel: {asset.phone_number || "N/A"}</div>
+                        </td>
+                        <td className="p-3 font-sans">
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${asset.status === "active" ? "bg-emerald-500/20 text-emerald-400" : "bg-red-500/20 text-red-400"}`}>
+                            {asset.status}
+                          </span>
+                        </td>
+                        <td className="p-3 text-right space-x-1.5 font-sans">
+                          <button onClick={() => setRevealedAssets(prev => ({ ...prev, [asset.id]: !prev[asset.id] }))} className="px-2 py-1 rounded bg-zinc-900 border border-zinc-700 text-zinc-300 text-[11px]">
+                            {isRev ? "🙈" : "👁"}
+                          </button>
+                          <button onClick={() => setSelectedAssetId(asset.id)} className="px-2.5 py-1 rounded bg-purple-500/20 border border-purple-500/40 text-purple-300 font-bold text-[11px]">
+                            Logs
+                          </button>
+                          <button onClick={() => setEditingAsset({ ...asset })} className="px-2.5 py-1 rounded bg-zinc-900 border border-zinc-700 text-emerald-400 font-bold text-[11px]">
+                            ✎ Edit
+                          </button>
+                          <button onClick={() => handleDeleteAsset(asset.id, asset.account_id)} className="px-2.5 py-1 rounded bg-zinc-900 border border-zinc-700 text-red-400 font-bold text-[11px]">
+                            🗑
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* ===================================================================== */}
+        {/* TAB 4: BULK DATA ENTRY ENGINE (ASSETS & EMPLOYEES)                    */}
+        {/* ===================================================================== */}
+        {activeTab === "bulk" && (
+          <form onSubmit={handleExecuteBulkImport} className="bg-zinc-950 border border-amber-500/40 rounded-2xl p-6 space-y-5 shadow-2xl">
+            <div className="flex flex-wrap justify-between items-center gap-3 border-b border-zinc-800 pb-4">
+              <div>
+                <span className="text-[10px] uppercase font-bold text-amber-400">High-Speed Batch Importer</span>
+                <h2 className="text-xl font-bold text-white">⚡ Bulk Data Entry Terminal (Excel / Google Sheets / CSV Paste)</h2>
+              </div>
+              <div className="flex gap-2 bg-black p-1 rounded-xl border border-zinc-800">
+                <button type="button" onClick={() => setBulkMode("assets")} className={`px-4 py-2 rounded-lg text-xs font-bold ${bulkMode === "assets" ? "bg-amber-500 text-black" : "text-zinc-400"}`}>
+                  1. Bulk Import Social Media Assets
+                </button>
+                <button type="button" onClick={() => setBulkMode("employees")} className={`px-4 py-2 rounded-lg text-xs font-bold ${bulkMode === "employees" ? "bg-amber-500 text-black" : "text-zinc-400"}`}>
+                  2. Bulk Onboard Employees (Admin / TL / SMM)
+                </button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+              <div>
+                <label className="text-[10px] uppercase font-bold text-zinc-400">Default Team Leader</label>
+                <select value={bulkDefaultTl} onChange={(e) => setBulkDefaultTl(e.target.value)} className="w-full mt-1 rounded-lg bg-black border border-zinc-800 p-2.5 text-xs text-white">
+                  {teamLeaders.map(tl => <option key={tl.id} value={tl.id}>{tl.full_name}</option>)}
+                </select>
+              </div>
+              {bulkMode === "assets" && (
+                <>
+                  <div>
+                    <label className="text-[10px] uppercase font-bold text-zinc-400">Default SMM Handler</label>
+                    <select value={bulkDefaultSmm} onChange={(e) => setBulkDefaultSmm(e.target.value)} className="w-full mt-1 rounded-lg bg-black border border-zinc-800 p-2.5 text-xs text-white">
+                      {allSmms.map(s => <option key={s.id} value={s.id}>{s.full_name}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-[10px] uppercase font-bold text-zinc-400">Default Platform</label>
+                    <select value={bulkDefaultPlatform} onChange={(e) => setBulkDefaultPlatform(e.target.value)} className="w-full mt-1 rounded-lg bg-black border border-zinc-800 p-2.5 text-xs text-white uppercase">
+                      {PLATFORMS.map(p => <option key={p} value={p}>{p}</option>)}
+                    </select>
+                  </div>
+                </>
+              )}
+              <div>
+                <label className="text-[10px] uppercase font-bold text-zinc-400">Default Country</label>
+                <select value={bulkDefaultCountry} onChange={(e) => setBulkDefaultCountry(e.target.value)} className="w-full mt-1 rounded-lg bg-black border border-zinc-800 p-2.5 text-xs text-white">
+                  {ALL_COUNTRIES.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+            </div>
+
+            <div className="p-3.5 rounded-xl bg-black border border-zinc-800 text-xs text-zinc-300 font-mono space-y-1">
+              {bulkMode === "assets" ? (
+                <>
+                  <div className="text-amber-400 font-bold">Format per line (Copy & Paste directly from Excel/Google Sheets or comma-separated):</div>
+                  <div>Asset_ID, Asset_Password, Email, Email_Password, Profile_Link, Bio, 2FA_Code, Phone, Country, Platform, Project</div>
+                  <div className="text-zinc-500">Example: @VoiceEthiopia, Pass123!, eth@mail.com, MailPass!, https://x.com/VoiceEthiopia, News bio, 992811, +2519110000, Ethiopia, twitter, Horn Umbrella</div>
+                </>
+              ) : (
+                <>
+                  <div className="text-amber-400 font-bold">Format per line (Copy & Paste from Excel/Google Sheets or comma-separated):</div>
+                  <div>Full_Name, Email, Password, Role (admin / team_leader / smm), Country</div>
+                  <div className="text-zinc-500">Example: Abebe Kebede, abebe@executive.com, Abebe@2026!, smm, Ethiopia</div>
+                </>
+              )}
+            </div>
+
+            <textarea
+              rows={8}
+              required
+              value={bulkText}
+              onChange={(e) => setBulkText(e.target.value)}
+              placeholder="Paste 10, 50, or 200 rows here..."
+              className="w-full rounded-xl bg-black border border-zinc-800 focus:border-amber-500 p-4 text-xs font-mono text-white outline-none"
+            />
+
+            <button type="submit" className="w-full py-3.5 bg-amber-500 hover:bg-amber-400 text-black font-bold rounded-xl text-sm transition-all">
+              ⚡ Execute Bulk Import ({parseBulkRows(bulkText).length} Rows Detected)
+            </button>
+          </form>
+        )}
+
+        {/* ===================================================================== */}
+        {/* TAB 5: PERMANENT AUDIT VAULT & RECORD FINDER                          */}
+        {/* ===================================================================== */}
+        {activeTab === "vault" && (
+          <div className="bg-zinc-950 border border-teal-500/40 rounded-2xl p-6 space-y-4">
+            <div>
+              <h2 className="text-lg font-bold text-white">📜 Permanent Audit Vault & Historical Record Finder ({filteredAuditLogs.length})</h2>
+              <p className="text-xs text-zinc-400">Every employee, asset credential, and metric ever entered is permanently preserved here—even if later edited or deleted.</p>
+            </div>
+            <div className="space-y-2.5 max-h-[600px] overflow-y-auto pr-1">
+              {filteredAuditLogs.map(log => (
+                <div key={log.id} className="p-4 rounded-xl bg-black border border-zinc-800 hover:border-teal-500/40 space-y-2 text-xs">
+                  <div className="flex flex-wrap justify-between items-center gap-2">
+                    <div className="flex items-center gap-2">
+                      <span className="px-2 py-0.5 rounded bg-teal-500/20 text-teal-300 font-bold text-[10px] uppercase">{log.action} • {log.entity_type}</span>
+                      <span className="font-bold text-white">{log.summary}</span>
+                    </div>
+                    <span className="text-[11px] font-mono text-zinc-500">
+                      By {log.actor_name} ({log.actor_role}) • {new Date(log.created_at).toLocaleString()}
+                    </span>
+                  </div>
+                  <pre className="p-2.5 rounded bg-zinc-950 border border-zinc-900 text-[11px] font-mono text-zinc-400 overflow-x-auto">
+                    {JSON.stringify(log.record_snapshot, null, 2)}
+                  </pre>
+                </div>
+              ))}
+              {filteredAuditLogs.length === 0 && <div className="text-center py-12 text-zinc-500 text-xs">No matching audit records found.</div>}
+            </div>
+          </div>
         )}
 
       </div>
 
-      {/* ADMIN MODAL: EDIT PERSONNEL PROFILE (TL OR SMM) */}
+      {/* ======================================================================= */}
+      {/* MODAL: CREATE EMPLOYEE (ADMIN, TEAM LEADER, OR SMM)                     */}
+      {/* ======================================================================= */}
+      {showCreateEmpModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4" onClick={() => setShowCreateEmpModal(false)}>
+          <form onSubmit={handleCreateEmployee} onClick={(e) => e.stopPropagation()} className="w-full max-w-xl bg-zinc-950 border border-blue-500/40 rounded-2xl p-6 space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center border-b border-zinc-800 pb-3">
+              <h3 className="text-base font-bold text-white">Create New Employee (Admin / Team Leader / SMM)</h3>
+              <button type="button" onClick={() => setShowCreateEmpModal(false)} className="text-xs text-zinc-400">✕</button>
+            </div>
+
+            <div className="grid grid-cols-3 gap-2 p-1 bg-black rounded-xl border border-zinc-800">
+              {(["smm", "team_leader", "admin"] as const).map(r => (
+                <button type="button" key={r} onClick={() => setEmpRole(r)} className={`py-2 rounded-lg text-xs font-bold uppercase ${empRole === r ? "bg-blue-600 text-white" : "text-zinc-400"}`}>
+                  {r.replace("_", " ")}
+                </button>
+              ))}
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <input type="text" required value={empName} onChange={(e) => setEmpName(e.target.value)} placeholder="Full Name" className="rounded-lg bg-black border border-zinc-800 p-2.5 text-xs text-white" />
+              <input type="email" required value={empEmail} onChange={(e) => setEmpEmail(e.target.value)} placeholder="email@executive.com" className="rounded-lg bg-black border border-zinc-800 p-2.5 text-xs text-white" />
+              <input type="text" required value={empPass} onChange={(e) => setEmpPass(e.target.value)} placeholder="Initial Password" className="rounded-lg bg-black border border-zinc-800 p-2.5 text-xs text-white" />
+            </div>
+
+            {empRole === "smm" && (
+              <div>
+                <label className="text-[10px] uppercase font-bold text-zinc-400">Assign Team Leader(s)</label>
+                <div className="grid grid-cols-3 gap-1.5 mt-1">
+                  {teamLeaders.map(tl => (
+                    <button type="button" key={tl.id} onClick={() => setEmpTlIds(prev => prev.includes(tl.id) ? prev.filter(x => x !== tl.id) : [...prev, tl.id])} className={`py-1.5 px-2 rounded text-xs font-bold border truncate ${empTlIds.includes(tl.id) ? "bg-blue-500/25 border-blue-500 text-blue-300" : "bg-black border-zinc-800 text-zinc-500"}`}>
+                      ✓ {tl.full_name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div>
+              <label className="text-[10px] uppercase font-bold text-zinc-400">Select Operational Countries ({empCountries.length} selected)</label>
+              <div className="grid grid-cols-4 gap-1.5 mt-1 max-h-40 overflow-y-auto p-1 bg-black rounded-xl border border-zinc-900">
+                {ALL_COUNTRIES.map(c => (
+                  <button type="button" key={c} onClick={() => setEmpCountries(prev => prev.includes(c) ? prev.filter(x => x !== c) : [...prev, c])} className={`py-1 px-2 rounded text-[11px] font-bold border truncate ${empCountries.includes(c) ? "bg-emerald-500/25 border-emerald-500 text-emerald-300" : "bg-black border-zinc-800 text-zinc-500"}`}>
+                    {c}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <button type="submit" className="w-full py-3 bg-emerald-500 hover:bg-emerald-400 text-black font-bold rounded-xl text-xs">
+              Create & Provision {empRole.toUpperCase()} Account Live
+            </button>
+          </form>
+        </div>
+      )}
+
+      {/* MODAL: EDIT EMPLOYEE */}
       {editingProfile && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4" onClick={() => setEditingProfile(null)}>
-          <form onSubmit={handleSaveProfileEdit} onClick={(e) => e.stopPropagation()} className="w-full max-w-md bg-zinc-950 border border-emerald-500/40 rounded-2xl p-6 space-y-4 shadow-2xl">
+          <form onSubmit={handleUpdateEmployee} onClick={(e) => e.stopPropagation()} className="w-full max-w-md bg-zinc-950 border border-emerald-500/40 rounded-2xl p-6 space-y-4 shadow-2xl">
             <div className="flex justify-between items-center border-b border-zinc-800 pb-3">
-              <h3 className="text-base font-bold text-white">Edit Personnel Profile (Global Admin CRUD)</h3>
+              <h3 className="text-base font-bold text-white">Edit Employee Profile</h3>
               <button type="button" onClick={() => setEditingProfile(null)} className="text-xs text-zinc-400">✕</button>
             </div>
             <div>
               <label className="text-[10px] uppercase font-bold text-zinc-400">Full Name</label>
-              <input type="text" required value={editingProfile.full_name || ""} onChange={(e) => setEditingProfile({ ...editingProfile, full_name: e.target.value })} className="w-full mt-1 rounded bg-black border border-zinc-800 p-2.5 text-sm text-white" />
+              <input type="text" required value={editingProfile.full_name || ""} onChange={(e) => setEditingProfile({ ...editingProfile, full_name: e.target.value })} className="w-full mt-1 rounded bg-black border border-zinc-800 p-2.5 text-xs text-white" />
             </div>
             <div>
-              <label className="text-[10px] uppercase font-bold text-zinc-400">Assigned Countries</label>
-              <input type="text" required value={editingProfile.country || ""} onChange={(e) => setEditingProfile({ ...editingProfile, country: e.target.value })} className="w-full mt-1 rounded bg-black border border-zinc-800 p-2.5 text-sm text-white" />
+              <label className="text-[10px] uppercase font-bold text-zinc-400">Assigned Countries (Comma separated)</label>
+              <input type="text" required value={editingProfile.country || ""} onChange={(e) => setEditingProfile({ ...editingProfile, country: e.target.value })} className="w-full mt-1 rounded bg-black border border-zinc-800 p-2.5 text-xs text-white" />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="text-[10px] uppercase font-bold text-zinc-400">System Role</label>
-                <select value={editingProfile.role} onChange={(e) => setEditingProfile({ ...editingProfile, role: e.target.value })} className="w-full mt-1 rounded bg-black border border-zinc-800 p-2.5 text-sm text-white uppercase">
+                <label className="text-[10px] uppercase font-bold text-zinc-400">Role</label>
+                <select value={editingProfile.role} onChange={(e) => setEditingProfile({ ...editingProfile, role: e.target.value })} className="w-full mt-1 rounded bg-black border border-zinc-800 p-2.5 text-xs text-white uppercase">
                   <option value="smm">SMM Handler</option>
                   <option value="team_leader">Team Leader</option>
                   <option value="admin">Master Admin</option>
@@ -705,92 +1067,90 @@ export default function AdminCommandCenter() {
               </div>
               {editingProfile.role === "smm" && (
                 <div>
-                  <label className="text-[10px] uppercase font-bold text-zinc-400">Reassign Team Leader</label>
-                  <select value={editingProfile.team_leader_id || ""} onChange={(e) => setEditingProfile({ ...editingProfile, team_leader_id: e.target.value })} className="w-full mt-1 rounded bg-black border border-zinc-800 p-2.5 text-sm text-white">
+                  <label className="text-[10px] uppercase font-bold text-zinc-400">Team Leader</label>
+                  <select value={editingProfile.team_leader_id || ""} onChange={(e) => setEditingProfile({ ...editingProfile, team_leader_id: e.target.value })} className="w-full mt-1 rounded bg-black border border-zinc-800 p-2.5 text-xs text-white">
                     {teamLeaders.map(tl => <option key={tl.id} value={tl.id}>{tl.full_name}</option>)}
                   </select>
                 </div>
               )}
             </div>
-            <button type="submit" className="w-full py-2.5 bg-emerald-500 text-black font-bold rounded-lg text-xs">Save Personnel Changes</button>
+            <div>
+              <label className="text-[10px] uppercase font-bold text-zinc-400">Reset Password (Optional)</label>
+              <input type="text" value={editingProfile.newPassword || ""} onChange={(e) => setEditingProfile({ ...editingProfile, newPassword: e.target.value })} placeholder="Leave blank to keep current password" className="w-full mt-1 rounded bg-black border border-zinc-800 p-2.5 text-xs text-white" />
+            </div>
+            <button type="submit" className="w-full py-2.5 bg-emerald-500 text-black font-bold rounded-lg text-xs">Save Employee Changes</button>
           </form>
         </div>
       )}
 
-      {/* ADMIN MODAL: CREATE NEW ASSET */}
+      {/* MODAL: CREATE SINGLE ASSET */}
       {showCreateAssetModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4" onClick={() => setShowCreateAssetModal(false)}>
-          <form onSubmit={handleAdminCreateAsset} onClick={(e) => e.stopPropagation()} className="w-full max-w-lg bg-zinc-950 border border-purple-500/40 rounded-2xl p-6 space-y-3 shadow-2xl">
+          <form onSubmit={handleCreateAsset} onClick={(e) => e.stopPropagation()} className="w-full max-w-lg bg-zinc-950 border border-purple-500/40 rounded-2xl p-6 space-y-3 shadow-2xl">
             <div className="flex justify-between items-center border-b border-zinc-800 pb-3">
-              <h3 className="text-base font-bold text-white">Create & Assign New Social Asset</h3>
+              <h3 className="text-base font-bold text-white">Create & Assign New Social Media Asset</h3>
               <button type="button" onClick={() => setShowCreateAssetModal(false)} className="text-xs text-zinc-400">✕</button>
             </div>
             <div className="grid grid-cols-3 gap-2">
-              <div>
-                <label className="text-[10px] uppercase font-bold text-zinc-400">Team Leader</label>
-                <select value={newAssetForm.team_leader_id} onChange={(e) => setNewAssetForm({ ...newAssetForm, team_leader_id: e.target.value })} className="w-full mt-1 rounded bg-black border border-zinc-800 p-2 text-xs text-white">
-                  {teamLeaders.map(tl => <option key={tl.id} value={tl.id}>{tl.full_name}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="text-[10px] uppercase font-bold text-zinc-400">Assign SMM</label>
-                <select value={newAssetForm.smm_id} onChange={(e) => setNewAssetForm({ ...newAssetForm, smm_id: e.target.value })} className="w-full mt-1 rounded bg-black border border-zinc-800 p-2 text-xs text-white">
-                  {allSmms.map(s => <option key={s.id} value={s.id}>{s.full_name}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="text-[10px] uppercase font-bold text-zinc-400">Platform</label>
-                <select value={newAssetForm.platform} onChange={(e) => setNewAssetForm({ ...newAssetForm, platform: e.target.value })} className="w-full mt-1 rounded bg-black border border-zinc-800 p-2 text-xs text-white uppercase">
-                  {PLATFORMS.map(p => <option key={p} value={p}>{p}</option>)}
-                </select>
-              </div>
+              <select value={newAsset.team_leader_id} onChange={(e) => setNewAsset({ ...newAsset, team_leader_id: e.target.value })} className="rounded bg-black border border-zinc-800 p-2 text-xs text-white">
+                {teamLeaders.map(tl => <option key={tl.id} value={tl.id}>TL: {tl.full_name}</option>)}
+              </select>
+              <select value={newAsset.smm_id} onChange={(e) => setNewAsset({ ...newAsset, smm_id: e.target.value })} className="rounded bg-black border border-zinc-800 p-2 text-xs text-white">
+                {allSmms.map(s => <option key={s.id} value={s.id}>SMM: {s.full_name}</option>)}
+              </select>
+              <select value={newAsset.platform} onChange={(e) => setNewAsset({ ...newAsset, platform: e.target.value })} className="rounded bg-black border border-zinc-800 p-2 text-xs text-white uppercase">
+                {PLATFORMS.map(p => <option key={p} value={p}>{p}</option>)}
+              </select>
             </div>
+            <input type="url" placeholder="1. Asset Profile Link" value={newAsset.profile_link} onChange={(e) => setNewAsset({ ...newAsset, profile_link: e.target.value })} className="w-full rounded bg-black border border-zinc-800 p-2 text-xs text-white" />
+            <input type="text" placeholder="2. Asset Bio" value={newAsset.bio} onChange={(e) => setNewAsset({ ...newAsset, bio: e.target.value })} className="w-full rounded bg-black border border-zinc-800 p-2 text-xs text-white" />
             <div className="grid grid-cols-2 gap-2">
-              <input type="text" required placeholder="Asset ID / @Handle" value={newAssetForm.account_id} onChange={(e) => setNewAssetForm({ ...newAssetForm, account_id: e.target.value })} className="rounded bg-black border border-zinc-800 p-2 text-xs text-white" />
-              <input type="text" placeholder="Asset Password" value={newAssetForm.account_password} onChange={(e) => setNewAssetForm({ ...newAssetForm, account_password: e.target.value })} className="rounded bg-black border border-zinc-800 p-2 text-xs text-white" />
-              <input type="email" placeholder="Asset Email" value={newAssetForm.email} onChange={(e) => setNewAssetForm({ ...newAssetForm, email: e.target.value })} className="rounded bg-black border border-zinc-800 p-2 text-xs text-white" />
-              <input type="text" placeholder="Email Password" value={newAssetForm.email_password} onChange={(e) => setNewAssetForm({ ...newAssetForm, email_password: e.target.value })} className="rounded bg-black border border-zinc-800 p-2 text-xs text-white" />
+              <input type="text" required placeholder="3. Asset ID (@Handle)" value={newAsset.account_id} onChange={(e) => setNewAsset({ ...newAsset, account_id: e.target.value })} className="rounded bg-black border border-zinc-800 p-2 text-xs text-white" />
+              <input type="text" placeholder="4. Asset Password" value={newAsset.account_password} onChange={(e) => setNewAsset({ ...newAsset, account_password: e.target.value })} className="rounded bg-black border border-zinc-800 p-2 text-xs text-white" />
+              <input type="email" placeholder="5. Asset Email" value={newAsset.email} onChange={(e) => setNewAsset({ ...newAsset, email: e.target.value })} className="rounded bg-black border border-zinc-800 p-2 text-xs text-white" />
+              <input type="text" placeholder="6. Email Password" value={newAsset.email_password} onChange={(e) => setNewAsset({ ...newAsset, email_password: e.target.value })} className="rounded bg-black border border-zinc-800 p-2 text-xs text-white" />
             </div>
-            <input type="url" placeholder="Asset Profile Link" value={newAssetForm.profile_link} onChange={(e) => setNewAssetForm({ ...newAssetForm, profile_link: e.target.value })} className="w-full rounded bg-black border border-zinc-800 p-2 text-xs text-white" />
-            <button type="submit" className="w-full py-2.5 bg-purple-600 text-white font-bold rounded-lg text-xs">Create Asset Live</button>
+            <div className="grid grid-cols-3 gap-2">
+              <input type="text" placeholder="7. 2FA Code" value={newAsset.two_fa_code} onChange={(e) => setNewAsset({ ...newAsset, two_fa_code: e.target.value })} className="rounded bg-black border border-zinc-800 p-2 text-xs text-white" />
+              <select value={newAsset.country_language} onChange={(e) => setNewAsset({ ...newAsset, country_language: e.target.value })} className="rounded bg-black border border-zinc-800 p-2 text-xs text-white">
+                {ALL_COUNTRIES.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+              <input type="text" placeholder="9. Phone Number" value={newAsset.phone_number} onChange={(e) => setNewAsset({ ...newAsset, phone_number: e.target.value })} className="rounded bg-black border border-zinc-800 p-2 text-xs text-white" />
+            </div>
+            <button type="submit" className="w-full py-2.5 bg-purple-600 text-white font-bold rounded-lg text-xs">Save & Create Asset Live</button>
           </form>
         </div>
       )}
 
-      {/* ADMIN MODAL: EDIT EXISTING ASSET */}
+      {/* MODAL: EDIT ASSET */}
       {editingAsset && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4" onClick={() => setEditingAsset(null)}>
-          <form onSubmit={handleAdminUpdateAsset} onClick={(e) => e.stopPropagation()} className="w-full max-w-lg bg-zinc-950 border border-emerald-500/40 rounded-2xl p-6 space-y-3 shadow-2xl">
+          <form onSubmit={handleUpdateAsset} onClick={(e) => e.stopPropagation()} className="w-full max-w-lg bg-zinc-950 border border-emerald-500/40 rounded-2xl p-6 space-y-3 shadow-2xl">
             <div className="flex justify-between items-center border-b border-zinc-800 pb-3">
-              <h3 className="text-base font-bold text-white">Edit / Reassign Social Asset (Admin CRUD)</h3>
+              <h3 className="text-base font-bold text-white">Edit / Reassign Social Asset</h3>
               <button type="button" onClick={() => setEditingAsset(null)} className="text-xs text-zinc-400">✕</button>
             </div>
             <div className="grid grid-cols-3 gap-2">
-              <div>
-                <label className="text-[10px] text-zinc-400">Reassign TL</label>
-                <select value={editingAsset.team_leader_id || ""} onChange={(e) => setEditingAsset({ ...editingAsset, team_leader_id: e.target.value })} className="w-full mt-1 rounded bg-black border border-zinc-800 p-2 text-xs text-white">
-                  {teamLeaders.map(tl => <option key={tl.id} value={tl.id}>{tl.full_name}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="text-[10px] text-zinc-400">Reassign SMM</label>
-                <select value={editingAsset.smm_id || ""} onChange={(e) => setEditingAsset({ ...editingAsset, smm_id: e.target.value })} className="w-full mt-1 rounded bg-black border border-zinc-800 p-2 text-xs text-white">
-                  {allSmms.map(s => <option key={s.id} value={s.id}>{s.full_name}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="text-[10px] text-zinc-400">Status</label>
-                <select value={editingAsset.status} onChange={(e) => setEditingAsset({ ...editingAsset, status: e.target.value })} className="w-full mt-1 rounded bg-black border border-zinc-800 p-2 text-xs text-white uppercase">
-                  <option value="active">ACTIVE</option>
-                  <option value="suspended">SUSPENDED</option>
-                </select>
-              </div>
+              <select value={editingAsset.team_leader_id || ""} onChange={(e) => setEditingAsset({ ...editingAsset, team_leader_id: e.target.value })} className="rounded bg-black border border-zinc-800 p-2 text-xs text-white">
+                {teamLeaders.map(tl => <option key={tl.id} value={tl.id}>TL: {tl.full_name}</option>)}
+              </select>
+              <select value={editingAsset.smm_id || ""} onChange={(e) => setEditingAsset({ ...editingAsset, smm_id: e.target.value })} className="rounded bg-black border border-zinc-800 p-2 text-xs text-white">
+                {allSmms.map(s => <option key={s.id} value={s.id}>SMM: {s.full_name}</option>)}
+              </select>
+              <select value={editingAsset.status} onChange={(e) => setEditingAsset({ ...editingAsset, status: e.target.value })} className="rounded bg-black border border-zinc-800 p-2 text-xs text-white uppercase">
+                <option value="active">ACTIVE</option>
+                <option value="suspended">SUSPENDED</option>
+              </select>
             </div>
             <div className="grid grid-cols-2 gap-2">
               <input type="text" placeholder="Asset ID" value={editingAsset.account_id || ""} onChange={(e) => setEditingAsset({ ...editingAsset, account_id: e.target.value })} className="rounded bg-black border border-zinc-800 p-2 text-xs text-white" />
               <input type="text" placeholder="Asset Password" value={editingAsset.account_password || ""} onChange={(e) => setEditingAsset({ ...editingAsset, account_password: e.target.value })} className="rounded bg-black border border-zinc-800 p-2 text-xs text-white" />
               <input type="email" placeholder="Email" value={editingAsset.email || ""} onChange={(e) => setEditingAsset({ ...editingAsset, email: e.target.value })} className="rounded bg-black border border-zinc-800 p-2 text-xs text-white" />
               <input type="text" placeholder="Email Pass" value={editingAsset.email_password || ""} onChange={(e) => setEditingAsset({ ...editingAsset, email_password: e.target.value })} className="rounded bg-black border border-zinc-800 p-2 text-xs text-white" />
+              <input type="text" placeholder="2FA Code" value={editingAsset.two_fa_code || ""} onChange={(e) => setEditingAsset({ ...editingAsset, two_fa_code: e.target.value })} className="rounded bg-black border border-zinc-800 p-2 text-xs text-white" />
+              <select value={editingAsset.country_language || "Ethiopia"} onChange={(e) => setEditingAsset({ ...editingAsset, country_language: e.target.value })} className="rounded bg-black border border-zinc-800 p-2 text-xs text-white">
+                {ALL_COUNTRIES.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
             </div>
             <input type="url" placeholder="Profile Link" value={editingAsset.profile_link || ""} onChange={(e) => setEditingAsset({ ...editingAsset, profile_link: e.target.value })} className="w-full rounded bg-black border border-zinc-800 p-2 text-xs text-white" />
             <button type="submit" className="w-full py-2.5 bg-emerald-500 text-black font-bold rounded-lg text-xs">Save Asset Changes</button>
@@ -798,192 +1158,55 @@ export default function AdminCommandCenter() {
         </div>
       )}
 
-      {/* SLIDE-OVER RIGHT INSPECTOR DRAWER FOR SELECTED ASSET & METRICS CRUD */}
+      {/* SLIDE-OVER RIGHT INSPECTOR FOR SELECTED ASSET */}
       {activeAsset && (
-        <div className="fixed inset-0 z-50 flex justify-end bg-black/70 backdrop-blur-sm" onClick={() => setSelectedAssetId(null)}>
-          <div
-            className="w-full max-w-2xl bg-zinc-950 border-l border-purple-500/40 h-full overflow-y-auto p-6 md:p-8 space-y-6 shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
-          >
+        <div className="fixed inset-0 z-50 flex justify-end bg-black/75 backdrop-blur-sm" onClick={() => setSelectedAssetId(null)}>
+          <div className="w-full max-w-2xl bg-zinc-950 border-l border-purple-500/40 h-full overflow-y-auto p-6 md:p-8 space-y-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <div className="flex justify-between items-start border-b border-zinc-800 pb-4">
               <div>
-                <span className="text-[10px] font-bold uppercase px-2.5 py-1 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30">
-                  ASSET VAULT: {activeAsset.platform}
-                </span>
+                <span className="text-[10px] font-bold uppercase px-2.5 py-1 rounded bg-purple-500/20 text-purple-300">ASSET VAULT: {activeAsset.platform}</span>
                 <h3 className="text-2xl font-bold text-white mt-2">{activeAsset.account_id}</h3>
                 <a href={activeAsset.profile_link} target="_blank" className="text-xs text-blue-400 underline">{activeAsset.profile_link}</a>
               </div>
-              <div className="flex gap-2">
-                <button onClick={() => setEditingAsset({ ...activeAsset })} className="px-3 py-1.5 rounded-lg bg-emerald-500/20 border border-emerald-500/40 text-xs text-emerald-300 font-bold">
-                  ✎ Edit Asset
-                </button>
-                <button onClick={() => handleAdminDeleteAsset(activeAsset.id)} className="px-3 py-1.5 rounded-lg bg-red-500/20 border border-red-500/40 text-xs text-red-300 font-bold">
-                  🗑 Delete
-                </button>
-                <button onClick={() => setSelectedAssetId(null)} className="px-3 py-1.5 rounded-lg bg-zinc-900 border border-zinc-700 text-xs text-zinc-300 hover:text-white">
-                  ✕ Close
-                </button>
-              </div>
+              <button onClick={() => setSelectedAssetId(null)} className="px-3 py-1.5 rounded-lg bg-zinc-900 border border-zinc-700 text-xs text-zinc-300">✕ Close</button>
             </div>
 
-            <div className="bg-black border border-zinc-800 rounded-xl p-5 space-y-3">
-              <div className="flex justify-between items-center">
-                <span className="text-xs font-bold uppercase text-zinc-400">Encrypted Asset Credentials</span>
-                <button
-                  onClick={() => setRevealedAssets(prev => ({ ...prev, [activeAsset.id]: !prev[activeAsset.id] }))}
-                  className="px-3 py-1 rounded bg-purple-500/20 border border-purple-500/40 text-purple-300 text-xs font-bold"
-                >
-                  {revealedAssets[activeAsset.id] ? "🙈 Mask Credentials" : "🔓 Reveal Credentials"}
-                </button>
-              </div>
-              <div className="grid grid-cols-2 gap-3 text-xs font-mono text-zinc-300 pt-2">
-                <div className="bg-zinc-950 p-3 rounded border border-zinc-900">
-                  <span className="text-[10px] text-zinc-500 block">ASSET PASSWORD</span>
-                  <span className={revealedAssets[activeAsset.id] ? "text-emerald-400" : "blur-[4px] select-none"}>{activeAsset.account_password || "N/A"}</span>
-                </div>
-                <div className="bg-zinc-950 p-3 rounded border border-zinc-900">
-                  <span className="text-[10px] text-zinc-500 block">ASSET 2FA CODE</span>
-                  <span className={revealedAssets[activeAsset.id] ? "text-amber-400" : "blur-[4px] select-none"}>{activeAsset.two_fa_code || "None"}</span>
-                </div>
-                <div className="bg-zinc-950 p-3 rounded border border-zinc-900">
-                  <span className="text-[10px] text-zinc-500 block">ASSET EMAIL</span>
-                  <span>{activeAsset.email || "N/A"}</span>
-                </div>
-                <div className="bg-zinc-950 p-3 rounded border border-zinc-900">
-                  <span className="text-[10px] text-zinc-500 block">ASSET EMAIL PASSWORD</span>
-                  <span className={revealedAssets[activeAsset.id] ? "text-emerald-400" : "blur-[4px] select-none"}>{activeAsset.email_password || "N/A"}</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Weekly Metrics History with Admin Edit & Delete CRUD */}
             <div className="space-y-3">
-              <h4 className="text-sm font-bold uppercase text-emerald-400">Weekly Metrics History (Admin Edit / Delete CRUD)</h4>
-
+              <h4 className="text-sm font-bold uppercase text-emerald-400">Weekly Metrics History (Edit / Delete)</h4>
               {editingMetric && (
                 <form onSubmit={handleAdminUpdateMetric} className="grid grid-cols-4 gap-2 bg-black p-3 rounded-xl border border-emerald-500/40 text-xs">
-                  <input type="number" placeholder="Impressions" value={editingMetric.impressions} onChange={(e) => setEditingMetric({ ...editingMetric, impressions: parseInt(e.target.value) || 0 })} className="rounded bg-zinc-900 p-2 text-white" />
-                  <input type="number" placeholder="Engagements" value={editingMetric.engagements} onChange={(e) => setEditingMetric({ ...editingMetric, engagements: parseInt(e.target.value) || 0 })} className="rounded bg-zinc-900 p-2 text-white" />
-                  <input type="number" placeholder="Total Fol" value={editingMetric.total_followers} onChange={(e) => setEditingMetric({ ...editingMetric, total_followers: parseInt(e.target.value) || 0 })} className="rounded bg-zinc-900 p-2 text-white" />
-                  <button type="submit" className="bg-emerald-500 text-black font-bold rounded">Save Row</button>
+                  <input type="number" value={editingMetric.impressions} onChange={(e) => setEditingMetric({ ...editingMetric, impressions: parseInt(e.target.value) || 0 })} className="rounded bg-zinc-900 p-2 text-white" />
+                  <input type="number" value={editingMetric.engagements} onChange={(e) => setEditingMetric({ ...editingMetric, engagements: parseInt(e.target.value) || 0 })} className="rounded bg-zinc-900 p-2 text-white" />
+                  <input type="number" value={editingMetric.total_followers} onChange={(e) => setEditingMetric({ ...editingMetric, total_followers: parseInt(e.target.value) || 0 })} className="rounded bg-zinc-900 p-2 text-white" />
+                  <button type="submit" className="bg-emerald-500 text-black font-bold rounded">Save</button>
                 </form>
               )}
-
-              <div className="overflow-x-auto border border-zinc-800 rounded-xl">
-                <table className="w-full text-left text-xs text-zinc-300 font-mono">
-                  <thead className="bg-zinc-900 text-zinc-400 uppercase">
-                    <tr>
-                      <th className="p-3">Week</th>
-                      <th className="p-3">Impr</th>
-                      <th className="p-3">Eng</th>
-                      <th className="p-3">Fol.</th>
-                      <th className="p-3">Posts</th>
-                      <th className="p-3 text-right">Actions</th>
+              <table className="w-full text-left text-xs text-zinc-300 font-mono border border-zinc-800 rounded-xl overflow-hidden">
+                <thead className="bg-zinc-900 text-zinc-400 uppercase">
+                  <tr>
+                    <th className="p-3">Week</th>
+                    <th className="p-3">Impr</th>
+                    <th className="p-3">Eng</th>
+                    <th className="p-3">Fol.</th>
+                    <th className="p-3 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-800 bg-black">
+                  {activeAssetMetrics.map(m => (
+                    <tr key={m.id}>
+                      <td className="p-3 text-white">{m.week_of}</td>
+                      <td className="p-3 text-blue-400">{m.impressions.toLocaleString()}</td>
+                      <td className="p-3 text-purple-400">{m.engagements.toLocaleString()}</td>
+                      <td className="p-3 text-white">{m.total_followers.toLocaleString()}</td>
+                      <td className="p-3 text-right space-x-2 font-sans">
+                        <button onClick={() => setEditingMetric({ ...m })} className="text-emerald-400 hover:underline">Edit</button>
+                        <button onClick={() => handleAdminDeleteMetric(m.id)} className="text-red-400 hover:underline">Delete</button>
+                      </td>
                     </tr>
-                  </thead>
-                  <tbody className="divide-y divide-zinc-800 bg-black">
-                    {activeAssetMetrics.map(m => (
-                      <tr key={m.id}>
-                        <td className="p-3 font-bold text-white">{m.week_of}</td>
-                        <td className="p-3 text-blue-400">{m.impressions.toLocaleString()}</td>
-                        <td className="p-3 text-purple-400">{m.engagements.toLocaleString()}</td>
-                        <td className="p-3 text-white">{m.total_followers.toLocaleString()}</td>
-                        <td className="p-3">{m.posts_published}</td>
-                        <td className="p-3 text-right space-x-2 font-sans">
-                          <button onClick={() => setEditingMetric({ ...m })} className="text-emerald-400 hover:underline">Edit</button>
-                          <button onClick={() => handleAdminDeleteMetric(m.id)} className="text-red-400 hover:underline">Delete</button>
-                        </td>
-                      </tr>
-                    ))}
-                    {activeAssetMetrics.length === 0 && (
-                      <tr><td colSpan={6} className="p-6 text-center text-zinc-500">No weekly metrics logged yet.</td></tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
+                  ))}
+                </tbody>
+              </table>
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* SLIDE-OVER EXECUTIVE SYSTEM & PERSONNEL CRUD DRAWER */}
-      {showSettings && (
-        <div className="fixed inset-0 z-50 flex justify-end bg-black/75 backdrop-blur-sm" onClick={() => setShowSettings(false)}>
-          <div onClick={(e) => e.stopPropagation()} className="w-full max-w-2xl bg-zinc-950 border-l border-emerald-500/40 h-full overflow-y-auto p-6 space-y-6 shadow-2xl">
-            <div className="flex justify-between items-center border-b border-zinc-800 pb-4">
-              <div>
-                <span className="text-[10px] uppercase font-bold text-emerald-400">Tier 1 — Master Control</span>
-                <h2 className="text-xl font-bold text-white">Executive System & Personnel CRUD</h2>
-              </div>
-              <button onClick={() => setShowSettings(false)} className="px-3 py-1 rounded bg-zinc-900 text-xs text-zinc-400">✕ Close</button>
-            </div>
-
-            {adminMsg && <div className="p-3 rounded bg-emerald-500/15 border border-emerald-500/40 text-emerald-300 text-xs font-bold text-center">{adminMsg}</div>}
-
-            <div className="p-4 bg-black border border-zinc-800 rounded-xl space-y-3">
-              <h3 className="text-xs font-bold uppercase text-emerald-400">1. Global Agency Metric Input Lock</h3>
-              <div className="grid grid-cols-2 gap-3">
-                <button onClick={() => handleGlobalLockAll(true)} className="py-2.5 bg-red-500/20 border border-red-500/40 text-red-400 hover:bg-red-500 hover:text-black font-bold rounded-lg text-xs">
-                  🔒 Lock All Agency SMMs
-                </button>
-                <button onClick={() => handleGlobalLockAll(false)} className="py-2.5 bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 hover:bg-emerald-500 hover:text-black font-bold rounded-lg text-xs">
-                  🔓 Unlock All Agency SMMs
-                </button>
-              </div>
-            </div>
-
-            <form onSubmit={handleAddPersonnel} className="p-4 bg-black border border-zinc-800 rounded-xl space-y-3">
-              <h3 className="text-xs font-bold uppercase text-emerald-400">2. Create New Personnel Account (Admin / TL / SMM)</h3>
-              <div className="grid grid-cols-3 gap-2">
-                <select value={newAdminRole} onChange={(e: any) => setNewAdminRole(e.target.value)} className="rounded bg-zinc-950 border border-zinc-800 p-2 text-xs text-white">
-                  <option value="team_leader">Role: Team Leader</option>
-                  <option value="smm">Role: SMM Handler</option>
-                  <option value="admin">Role: Co-Admin</option>
-                </select>
-                <input type="text" required value={newAdminName} onChange={(e) => setNewAdminName(e.target.value)} placeholder="Full Name" className="rounded bg-zinc-950 border border-zinc-800 p-2 text-xs text-white" />
-                <input type="text" required value={newAdminCountry} onChange={(e) => setNewAdminCountry(e.target.value)} placeholder="Countries" className="rounded bg-zinc-950 border border-zinc-800 p-2 text-xs text-white" />
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <input type="email" required value={newAdminEmail} onChange={(e) => setNewAdminEmail(e.target.value)} placeholder="user@executive.com" className="rounded bg-zinc-950 border border-zinc-800 p-2 text-xs text-white" />
-                <input type="password" required value={newAdminPass} onChange={(e) => setNewAdminPass(e.target.value)} placeholder="Password" className="rounded bg-zinc-950 border border-zinc-800 p-2 text-xs text-white" />
-              </div>
-              <button type="submit" className="w-full py-2 bg-emerald-500 text-black font-bold rounded text-xs">
-                + Create Personnel Account Live
-              </button>
-            </form>
-
-            <div className="p-4 bg-black border border-zinc-800 rounded-xl space-y-3">
-              <h3 className="text-xs font-bold uppercase text-emerald-400">3. Update Your Master Admin Passcode</h3>
-              <div className="flex gap-2">
-                <input type="password" value={masterNewPass} onChange={(e) => setMasterNewPass(e.target.value)} placeholder="New Master Passcode" className="flex-1 rounded bg-zinc-950 border border-zinc-800 p-2 text-xs text-white" />
-                <button type="button" onClick={handleUpdateMasterPassword} className="px-4 py-2 bg-white text-black font-bold rounded text-xs">Update</button>
-              </div>
-            </div>
-
-            <div className="p-4 bg-black border border-zinc-800 rounded-xl space-y-3">
-              <h3 className="text-xs font-bold uppercase text-emerald-400">4. Global Personnel Directory — Read / Edit / Delete ({profiles.length})</h3>
-              <div className="max-h-72 overflow-y-auto divide-y divide-zinc-900 text-xs">
-                {profiles.map(p => (
-                  <div key={p.id} className="py-2.5 flex justify-between items-center gap-2">
-                    <div>
-                      <span className="font-bold text-white">{p.full_name}</span>
-                      <span className="text-zinc-500 ml-2">[{p.role.toUpperCase()}] • {p.country}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <button onClick={() => { setShowSettings(false); setEditingProfile({ ...p }); }} className="px-2 py-1 rounded bg-zinc-900 border border-zinc-700 text-emerald-400 font-bold">
-                        ✎ Edit
-                      </button>
-                      {p.id !== adminProfile.id && (
-                        <button onClick={() => handleDeletePersonnel(p.id, p.full_name)} className="px-2 py-1 rounded bg-zinc-900 border border-zinc-700 text-red-400 font-bold">
-                          🗑 Delete
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
           </div>
         </div>
       )}
