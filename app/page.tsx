@@ -97,37 +97,37 @@ export default function SMMGatekeeper() {
     }
   };
 
-  if (isCheckingAuth) return <div className="flex min-h-screen items-center justify-center bg-black text-purple-400 font-mono text-sm animate-pulse">Establishing Encrypted Handshake...</div>;
+  if (isCheckingAuth) return <div className="flex min-h-screen items-center justify-center bg-black text-purple-400 font-mono text-sm animate-pulse px-4 text-center">Establishing Encrypted Handshake...</div>;
 
   const displayedCountries = countryGroup === "african" ? AFRICAN_COUNTRIES : EURASIA_SQUAD_COUNTRIES;
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-black p-4 text-zinc-100 font-sans">
-      <div className="w-full max-w-lg my-8">
-        <div className="text-center mb-6">
+    <div className="flex min-h-screen flex-col items-center justify-center bg-black px-4 py-6 sm:p-6 text-zinc-100 font-sans">
+      <div className="w-full max-w-lg my-auto">
+        <div className="text-center mb-5 sm:mb-6">
           <span className="text-[10px] uppercase tracking-widest bg-purple-500/20 text-purple-300 border border-purple-500/30 px-3 py-1 rounded-full font-bold">
             Tier 3 — @smm Handler Access
           </span>
-          <h1 className="text-3xl font-bold text-white tracking-tight mt-3">SMM Handler Portal</h1>
+          <h1 className="text-2xl sm:text-3xl font-bold text-white tracking-tight mt-2.5">SMM Handler Portal</h1>
           <p className="text-xs text-zinc-500 mt-1">Sign in with your <b className="text-purple-400">username@smm</b> credentials</p>
         </div>
 
-        <div className="rounded-2xl border border-zinc-800 bg-zinc-950 p-8 shadow-2xl relative overflow-hidden">
+        <div className="rounded-3xl sm:rounded-2xl border border-zinc-800/90 bg-zinc-950 p-5 sm:p-8 shadow-2xl relative overflow-hidden">
           <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-purple-600 via-fuchsia-500 to-emerald-400"></div>
           
           <form onSubmit={handleSMMAuth} className="space-y-4">
             {!isLoginMode && (
               <>
                 <div>
-                  <label className="text-[10px] uppercase font-bold text-zinc-400 ml-1">1. Handler Full Name</label>
-                  <input type="text" required value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Enter Full Name" className="w-full mt-1 rounded-lg bg-black border border-zinc-800 p-3 text-sm focus:border-purple-500 outline-none text-white" />
+                  <label className="text-[11px] uppercase font-bold text-zinc-400 ml-1">1. Handler Full Name</label>
+                  <input type="text" required value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Enter Full Name" className="w-full mt-1 rounded-xl bg-black border border-zinc-800 p-3.5 text-sm focus:border-purple-500 outline-none text-white" />
                 </div>
 
                 <div>
-                  <label className="text-[10px] uppercase font-bold text-zinc-400 ml-1">2. Choose Platform(s)</label>
-                  <div className="grid grid-cols-3 gap-2 mt-1">
+                  <label className="text-[11px] uppercase font-bold text-zinc-400 ml-1">2. Tap Platform(s)</label>
+                  <div className="grid grid-cols-3 gap-2 mt-1.5">
                     {PLATFORMS.map(p => (
-                      <button type="button" key={p} onClick={() => toggleItem(p, selectedPlatforms, setSelectedPlatforms)} className={`py-2 px-2 rounded-lg text-xs font-bold uppercase border transition-all ${selectedPlatforms.includes(p) ? "bg-purple-500/25 border-purple-500 text-purple-200" : "bg-black border-zinc-800 text-zinc-500"}`}>
+                      <button type="button" key={p} onClick={() => toggleItem(p, selectedPlatforms, setSelectedPlatforms)} className={`min-h-[42px] py-2 px-2 rounded-xl text-xs font-bold uppercase border active:scale-95 transition-all ${selectedPlatforms.includes(p) ? "bg-purple-500/25 border-purple-500 text-purple-200 shadow-[0_0_12px_rgba(168,85,247,0.25)]" : "bg-black border-zinc-800 text-zinc-500"}`}>
                         {p}
                       </button>
                     ))}
@@ -135,10 +135,10 @@ export default function SMMGatekeeper() {
                 </div>
 
                 <div>
-                  <label className="text-[10px] uppercase font-bold text-zinc-400 ml-1">3. Choose Team Leader(s)</label>
-                  <div className="grid grid-cols-3 gap-2 mt-1">
+                  <label className="text-[11px] uppercase font-bold text-zinc-400 ml-1">3. Tap Team Leader(s)</label>
+                  <div className="grid grid-cols-3 gap-2 mt-1.5">
                     {teamLeaders.map(tl => (
-                      <button type="button" key={tl.id} onClick={() => toggleItem(tl.id, selectedTlIds, setSelectedTlIds)} className={`py-2 px-2.5 rounded-lg text-xs font-bold border text-left truncate transition-all ${selectedTlIds.includes(tl.id) ? "bg-blue-500/25 border-blue-500 text-blue-200" : "bg-black border-zinc-800 text-zinc-500"}`}>
+                      <button type="button" key={tl.id} onClick={() => toggleItem(tl.id, selectedTlIds, setSelectedTlIds)} className={`min-h-[42px] py-2 px-2.5 rounded-xl text-xs font-bold border text-left truncate active:scale-95 transition-all ${selectedTlIds.includes(tl.id) ? "bg-blue-500/25 border-blue-500 text-blue-200" : "bg-black border-zinc-800 text-zinc-500"}`}>
                         ✓ {tl.full_name}
                       </button>
                     ))}
@@ -146,16 +146,16 @@ export default function SMMGatekeeper() {
                 </div>
 
                 <div>
-                  <div className="flex justify-between items-center mb-1">
-                    <label className="text-[10px] uppercase font-bold text-zinc-400 ml-1">4. Choose Operational Countries ({selectedCountries.length})</label>
-                    <div className="flex gap-1 bg-black p-0.5 rounded border border-zinc-800">
-                      <button type="button" onClick={() => setCountryGroup("african")} className={`px-2 py-0.5 rounded text-[10px] font-bold ${countryGroup === "african" ? "bg-emerald-500 text-black" : "text-zinc-400"}`}>African Nations (20)</button>
-                      <button type="button" onClick={() => setCountryGroup("eurasia")} className={`px-2 py-0.5 rounded text-[10px] font-bold ${countryGroup === "eurasia" ? "bg-emerald-500 text-black" : "text-zinc-400"}`}>Global Regions (14)</button>
+                  <div className="flex flex-wrap justify-between items-center gap-2 mb-1.5">
+                    <label className="text-[11px] uppercase font-bold text-zinc-400 ml-1">4. Operational Countries ({selectedCountries.length})</label>
+                    <div className="flex gap-1 bg-black p-1 rounded-xl border border-zinc-800">
+                      <button type="button" onClick={() => setCountryGroup("african")} className={`px-2.5 py-1 rounded-lg text-[10px] font-bold ${countryGroup === "african" ? "bg-emerald-500 text-black" : "text-zinc-400"}`}>Africa (20)</button>
+                      <button type="button" onClick={() => setCountryGroup("eurasia")} className={`px-2.5 py-1 rounded-lg text-[10px] font-bold ${countryGroup === "eurasia" ? "bg-emerald-500 text-black" : "text-zinc-400"}`}>Global (14)</button>
                     </div>
                   </div>
-                  <div className="grid grid-cols-4 gap-1.5 max-h-40 overflow-y-auto p-1 bg-black/50 rounded-xl border border-zinc-900">
+                  <div className="grid grid-cols-3 sm:grid-cols-4 gap-1.5 max-h-44 overflow-y-auto p-1.5 bg-black/60 rounded-xl border border-zinc-900">
                     {displayedCountries.map(c => (
-                      <button type="button" key={c} onClick={() => toggleItem(c, selectedCountries, setSelectedCountries)} className={`py-1.5 px-2 rounded-lg text-[11px] font-bold border transition-all truncate ${selectedCountries.includes(c) ? "bg-emerald-500/20 border-emerald-500 text-emerald-300" : "bg-black border-zinc-800 text-zinc-500"}`}>
+                      <button type="button" key={c} onClick={() => toggleItem(c, selectedCountries, setSelectedCountries)} className={`min-h-[38px] py-1.5 px-2 rounded-lg text-[11px] font-bold border active:scale-95 transition-all truncate ${selectedCountries.includes(c) ? "bg-emerald-500/20 border-emerald-500 text-emerald-300" : "bg-black border-zinc-800 text-zinc-500"}`}>
                         {c}
                       </button>
                     ))}
@@ -165,36 +165,40 @@ export default function SMMGatekeeper() {
             )}
 
             <div>
-              <label className="text-[10px] uppercase font-bold text-purple-400 ml-1">SMM Username (@smm)</label>
-              <input type="text" required value={username} onChange={(e) => setUsername(e.target.value)} placeholder="e.g. abebe@smm" className="w-full mt-1 rounded-lg bg-black border border-zinc-800 p-3 text-sm focus:border-purple-500 outline-none text-white font-mono" />
+              <label className="text-[11px] uppercase font-bold text-purple-400 ml-1">SMM Username (@smm)</label>
+              <input type="text" autoCapitalize="none" autoCorrect="off" required value={username} onChange={(e) => setUsername(e.target.value)} placeholder="e.g. abebe@smm" className="w-full mt-1 rounded-xl bg-black border border-zinc-800 p-3.5 text-sm focus:border-purple-500 outline-none text-white font-mono" />
             </div>
 
             <div>
-              <label className="text-[10px] uppercase font-bold text-zinc-400 ml-1">Password</label>
-              <input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" className="w-full mt-1 rounded-lg bg-black border border-zinc-800 p-3 text-sm focus:border-purple-500 outline-none text-white" />
+              <label className="text-[11px] uppercase font-bold text-zinc-400 ml-1">Password</label>
+              <input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" className="w-full mt-1 rounded-xl bg-black border border-zinc-800 p-3.5 text-sm focus:border-purple-500 outline-none text-white" />
             </div>
             
             {status.type !== "idle" && (
-              <div className={`text-xs text-center p-2.5 rounded-lg border ${status.type === "error" ? "bg-red-500/10 border-red-500/30 text-red-400" : "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"}`}>
+              <div className={`text-xs text-center p-3 rounded-xl border ${status.type === "error" ? "bg-red-500/10 border-red-500/30 text-red-400" : "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"}`}>
                 {status.msg}
               </div>
             )}
 
-            <button type="submit" disabled={status.type === "loading"} className="w-full bg-purple-600 text-white p-3 rounded-lg font-bold hover:bg-purple-500 transition-all">
+            <button type="submit" disabled={status.type === "loading"} className="w-full min-h-[48px] bg-purple-600 text-white p-3.5 rounded-xl font-bold hover:bg-purple-500 active:scale-[0.98] transition-all shadow-[0_0_25px_rgba(147,51,234,0.35)]">
               {status.type === "loading" ? "Verifying..." : isLoginMode ? "Sign In with @smm" : "Create @smm Account"}
             </button>
             
             <div className="text-center pt-2">
-              <button type="button" onClick={() => { setIsLoginMode(!isLoginMode); setStatus({ type: "idle", msg: "" }); }} className="text-xs text-zinc-400 hover:text-white transition-colors underline">
+              <button type="button" onClick={() => { setIsLoginMode(!isLoginMode); setStatus({ type: "idle", msg: "" }); }} className="text-xs text-zinc-400 hover:text-white py-2 transition-colors underline">
                 {isLoginMode ? "New SMM Handler? Register @smm Username" : "Already registered? Sign In"}
               </button>
             </div>
           </form>
         </div>
 
-        <div className="mt-6 flex justify-between items-center text-xs text-zinc-500 border-t border-zinc-900 pt-4 px-2">
-          <Link href="/team-leader" className="hover:text-blue-400 transition-colors">🛡 Team Leader Portal (@tl) →</Link>
-          <Link href="/admin" className="hover:text-emerald-400 transition-colors">👑 Admin Command Vault →</Link>
+        <div className="mt-6 grid grid-cols-2 gap-3 text-center text-xs text-zinc-400">
+          <Link href="/team-leader" className="p-3 rounded-xl bg-zinc-950 border border-zinc-900 hover:border-blue-500/40 hover:text-blue-400 active:scale-95 transition-all">
+            🛡 Team Leader (@tl) →
+          </Link>
+          <Link href="/admin" className="p-3 rounded-xl bg-zinc-950 border border-zinc-900 hover:border-emerald-500/40 hover:text-emerald-400 active:scale-95 transition-all">
+            👑 Admin Vault →
+          </Link>
         </div>
       </div>
     </div>
