@@ -15,13 +15,13 @@ export function usePortalTheme() {
   const [themeId, setThemeId] = useState<AppThemeId>("emerald");
   useEffect(() => {
     const saved = localStorage.getItem("portal_theme_v1") as AppThemeId;
-    if (saved && APP_THEMES.some((t) => t.id === saved)) setThemeId(saved);
+    if (saved && APP_THEMES.some((t: any) => t.id === saved)) setThemeId(saved);
   }, []);
   const changeTheme = (id: AppThemeId) => {
     setThemeId(id);
     localStorage.setItem("portal_theme_v1", id);
   };
-  const currentTheme = APP_THEMES.find((t) => t.id === themeId) || APP_THEMES[0];
+  const currentTheme = APP_THEMES.find((t: any) => t.id === themeId) || APP_THEMES[0];
   return { themeId, changeTheme, currentTheme };
 }
 
@@ -39,7 +39,7 @@ export function ThemePickerDropdown({
       className="rounded-xl bg-zinc-900/90 border border-zinc-800 hover:border-zinc-700 px-3 py-2 text-xs text-zinc-200 font-bold outline-none transition-all cursor-pointer"
       title="Select Portal Visual Theme"
     >
-      {APP_THEMES.map((t) => (
+      {APP_THEMES.map((t: any) => (
         <option key={t.id} value={t.id}>
           🎨 {t.name}
         </option>
@@ -846,7 +846,7 @@ export function ExecutiveAnalyticsGraphs({
       return { tl, smmCount: squadSmms.length, assetCount: squadAssets.length, impr, eng, posts, netFol, engRate, score };
     })
     .sort((a, b) => b.impr - a.impr);
-  const maxTlImpr = Math.max(100, ...tlLeaderboard.map((t) => t.impr));
+  const maxTlImpr = Math.max(100, ...tlLeaderboard.map((t: any) => t.impr));
 
   // Contrasting SMM Handler Leaderboard
   const smmLeaderboard = smms
@@ -858,7 +858,7 @@ export function ExecutiveAnalyticsGraphs({
       const posts = logs.reduce((s, m) => s + Number(m.posts_published || 0), 0);
       const netFol = logs.reduce((s, m) => s + (Number(m.followers_gained || 0) - Number(m.followers_lost || 0)), 0);
       const engRate = impr > 0 ? (eng / impr) * 100 : 0;
-      const tl = tls.find((t) => t.id === smm.team_leader_id);
+      const tl = tls.find((t: any) => t.id === smm.team_leader_id);
       const score = Math.min(100, Math.round(engRate * 10 + Math.min(50, impr / 1000) + Math.min(25, posts / 3)));
       return { smm, tlName: tl?.full_name || "Unassigned", assetCount: myAssets.length, impr, eng, posts, netFol, engRate, score };
     })
@@ -1130,7 +1130,7 @@ export function ForensicArchiveVault({
       </div>
 
       <div className="flex flex-wrap gap-2">
-        {["ALL", "ASSET", "EMPLOYEE", "METRIC"].map((t) => (
+        {["ALL", "ASSET", "EMPLOYEE", "METRIC"].map((t: any) => (
           <button key={t} type="button" onClick={() => setTypeFilter(t)} className={`px-3 py-1.5 rounded-xl text-xs font-bold border ${typeFilter === t ? "bg-amber-500 text-black border-amber-400" : "bg-black border-zinc-800 text-zinc-400"}`}>{t}</button>
         ))}
         {["ALL", "SUSPENDED", "ACTIVE", "UPDATE", "CREATE", "DELETE"].map((act) => (

@@ -386,7 +386,7 @@ export default function SMMDashboard() {
   const myAchievements = computeAchievements(assets, allMyMetrics);
 
   return (
-    <div className={`min-h-screen ${currentTheme.shellBg} p-3 sm:p-6 md:p-8 pb-28 md:pb-10 font-sans">
+    <div className={`min-h-screen ${currentTheme.shellBg} p-3 sm:p-6 md:p-8 pb-28 md:pb-10 font-sans`}>
       <div className="max-w-7xl mx-auto space-y-4 sm:space-y-6">
         {/* Top Header */}
         <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center border-b border-zinc-800 pb-4 gap-3">
