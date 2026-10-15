@@ -33,7 +33,7 @@ export default function SMMDashboard() {
   const [newPassword, setNewPassword] = useState("");
   const [autoMaskVault, setAutoMaskVault] = useState(true);
 
-  // Edit Existing Asset Modal (For completing TL setup handovers)
+  // Edit Existing Asset Modal
   const [editingAsset, setEditingAsset] = useState<any>(null);
 
   // 9 Ordered Asset Registration Fields
@@ -50,7 +50,8 @@ export default function SMMDashboard() {
   const [countryLanguage, setCountryLanguage] = useState(COUNTRY_OPTIONS[0]);
   const [phoneNumber, setPhoneNumber] = useState("");
 
-  // Weekly Asset Metrics Form State
+  // Weekly Asset Metrics CRUD Form State
+  const [editingMetricId, setEditingMetricId] = useState<string | null>(null);
   const [weekOf, setWeekOf] = useState(new Date().toISOString().split("T")[0]);
   const [impressions, setImpressions] = useState("");
   const [engagements, setEngagements] = useState("");
@@ -97,7 +98,6 @@ export default function SMMDashboard() {
   const initSMM = async () => {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) { window.location.href = "/"; return null; }
-
     await refreshProfileAndAssets(session.user.id, true);
     return session.user.id;
   };
@@ -142,6 +142,8 @@ export default function SMMDashboard() {
         if (!selectedAssetId) setSelectedAssetId(targetId);
         const { data: mData } = await supabase.from("weekly_metrics").select("*").eq("asset_id", targetId).order("week_of", { ascending: false });
         if (mData) setMetricsHistory(mData);
+      } else {
+        setMetricsHistory([]);
       }
     }
   };
@@ -188,6 +190,7 @@ export default function SMMDashboard() {
     await refreshProfileAndAssets(profile.id);
   };
 
+  // ASSET CRUD: CREATE
   const handleRegisterAsset = async (e: React.FormEvent) => {
     e.preventDefault();
     setStatusMsg("Registering new Asset into vault...");
@@ -211,7 +214,7 @@ export default function SMMDashboard() {
     if (error) {
       setStatusMsg("Error: " + error.message);
     } else {
-      setStatusMsg("Asset Registered & Synced Live!");
+      setStatusMsg("Asset Created & Synced Live!");
       setProfileLink(""); setBio(""); setAccountId(""); setAccountPassword("");
       setEmail(""); setEmailPassword(""); setTwoFaCode(""); setPhoneNumber("");
       await refreshProfileAndAssets(profile.id);
@@ -219,24 +222,57 @@ export default function SMMDashboard() {
     }
   };
 
+  // ASSET CRUD: UPDATE
   const handleUpdateExistingAsset = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingAsset) return;
-    const { error } = await supabase.from("social_assets").update({
-      account_id: editingAsset.account_id,
-      profile_link: editingAsset.profile_link,
-      bio: editingAsset.bio,
-      account_password: editingAsset.account_password,
-      email: editingAsset.email,
-      email_password: editingAsset.email_password,
-      two_fa_code: editingAsset.two_fa_code,
-      country_language: editingAsset.country_language,
-      phone_number: editingAsset.phone_number
-    }).eq("id", editingAsset.id);
-
-    if (!error) {
-      setStatusMsg("Asset credentials updated & synced with Team Leader!");
+    const res = await fetch("/api/crud", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        actorId: profile.id,
+        entity: "asset",
+        action: "update",
+        payload: {
+          id: editingAsset.id,
+          platform: editingAsset.platform,
+          project_name: editingAsset.project_name,
+          status: editingAsset.status,
+          account_id: editingAsset.account_id,
+          profile_link: editingAsset.profile_link,
+          bio: editingAsset.bio,
+          account_password: editingAsset.account_password,
+          email: editingAsset.email,
+          email_password: editingAsset.email_password,
+          two_fa_code: editingAsset.two_fa_code,
+          country_language: editingAsset.country_language,
+          phone_number: editingAsset.phone_number
+        }
+      })
+    });
+    if (res.ok) {
+      setStatusMsg("Asset Updated & Synced Live!");
       setEditingAsset(null);
+      await refreshProfileAndAssets(profile.id);
+    }
+  };
+
+  // ASSET CRUD: DELETE
+  const handleDeleteOwnAsset = async (assetId: string) => {
+    if (!confirm("Delete this Asset and all of its weekly logs permanently?")) return;
+    const res = await fetch("/api/crud", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        actorId: profile.id,
+        entity: "asset",
+        action: "delete",
+        payload: { id: assetId }
+      })
+    });
+    if (res.ok) {
+      setStatusMsg("Asset Deleted.");
+      if (selectedAssetId === assetId) setSelectedAssetId("");
       await refreshProfileAndAssets(profile.id);
     }
   };
@@ -246,35 +282,87 @@ export default function SMMDashboard() {
     await supabase.from("social_assets").update({ status: newStatus }).eq("id", asset.id);
   };
 
+  // METRIC CRUD: CREATE / UPDATE
   const handleLogMetrics = async (e: React.FormEvent) => {
     e.preventDefault();
     if (profile?.is_locked) return alert("Your Team Leader has locked weekly Asset metric submissions.");
     if (!selectedAssetId) return alert("Please select an Asset first.");
 
-    setStatusMsg("Streaming Weekly Asset Metrics...");
-    const { error } = await supabase.from("weekly_metrics").upsert([{
-      asset_id: selectedAssetId,
-      week_of: weekOf,
-      impressions: parseInt(impressions) || 0,
-      engagements: parseInt(engagements) || 0,
-      likes: parseInt(likes) || 0,
-      shares_reposts: parseInt(sharesReposts) || 0,
-      comments: parseInt(comments) || 0,
-      followers_gained: parseInt(followersGained) || 0,
-      followers_lost: parseInt(followersLost) || 0,
-      total_followers: parseInt(totalFollowers) || 0,
-      posts_published: parseInt(postsPublished) || 0,
-      top_post_impressions: parseInt(topPostImpr) || 0
-    }], { onConflict: "asset_id,week_of" });
+    setStatusMsg(editingMetricId ? "Updating Weekly Asset Report..." : "Saving Weekly Asset Metrics...");
+    const res = await fetch("/api/crud", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        actorId: profile.id,
+        entity: "metric",
+        action: "upsert",
+        payload: {
+          asset_id: selectedAssetId,
+          week_of: weekOf,
+          impressions: parseInt(impressions) || 0,
+          engagements: parseInt(engagements) || 0,
+          likes: parseInt(likes) || 0,
+          shares_reposts: parseInt(sharesReposts) || 0,
+          comments: parseInt(comments) || 0,
+          followers_gained: parseInt(followersGained) || 0,
+          followers_lost: parseInt(followersLost) || 0,
+          total_followers: parseInt(totalFollowers) || 0,
+          posts_published: parseInt(postsPublished) || 0,
+          top_post_impressions: parseInt(topPostImpr) || 0
+        }
+      })
+    });
 
-    if (error) {
-      setStatusMsg("Error: " + error.message);
+    const data = await res.json();
+    if (!res.ok) {
+      setStatusMsg("Error: " + data.error);
     } else {
-      setStatusMsg("Weekly Metrics Synced Live!");
-      setImpressions(""); setEngagements(""); setLikes(""); setSharesReposts(""); setComments("");
-      setFollowersGained(""); setFollowersLost(""); setTotalFollowers(""); setPostsPublished(""); setTopPostImpr("");
+      setStatusMsg(editingMetricId ? "Weekly Report Updated Live!" : "Weekly Metrics Logged Live!");
+      resetMetricForm();
       await loadMetrics(selectedAssetId);
     }
+  };
+
+  const loadMetricRowForEdit = (m: any) => {
+    if (profile?.is_locked) return alert("Metric editing is locked by your Team Leader.");
+    setEditingMetricId(m.id);
+    setWeekOf(m.week_of);
+    setImpressions(String(m.impressions || 0));
+    setEngagements(String(m.engagements || 0));
+    setLikes(String(m.likes || 0));
+    setSharesReposts(String(m.shares_reposts || 0));
+    setComments(String(m.comments || 0));
+    setFollowersGained(String(m.followers_gained || 0));
+    setFollowersLost(String(m.followers_lost || 0));
+    setTotalFollowers(String(m.total_followers || 0));
+    setPostsPublished(String(m.posts_published || 0));
+    setTopPostImpr(String(m.top_post_impressions || 0));
+  };
+
+  // METRIC CRUD: DELETE
+  const handleDeleteMetricRow = async (metricId: string) => {
+    if (profile?.is_locked) return alert("Metric deletion is locked by your Team Leader.");
+    if (!confirm("Delete this weekly metric entry?")) return;
+    const res = await fetch("/api/crud", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        actorId: profile.id,
+        entity: "metric",
+        action: "delete",
+        payload: { id: metricId }
+      })
+    });
+    if (res.ok) {
+      setStatusMsg("Weekly metric row deleted.");
+      await loadMetrics(selectedAssetId);
+    }
+  };
+
+  const resetMetricForm = () => {
+    setEditingMetricId(null);
+    setImpressions(""); setEngagements(""); setLikes(""); setSharesReposts(""); setComments("");
+    setFollowersGained(""); setFollowersLost(""); setTotalFollowers(""); setPostsPublished(""); setTopPostImpr("");
   };
 
   const toggleArrayItem = (item: string, arr: string[], setArr: any) => {
@@ -295,12 +383,12 @@ export default function SMMDashboard() {
     <div className="min-h-screen bg-black text-zinc-100 p-4 md:p-8 font-sans">
       <div className="max-w-7xl mx-auto space-y-6">
         
-        {/* Header with Live Realtime Sync Badge */}
+        {/* Header */}
         <div className="flex flex-wrap justify-between items-center border-b border-zinc-800 pb-5 gap-4">
           <div>
             <div className="flex items-center gap-2">
               <span className="text-[10px] uppercase tracking-widest bg-purple-500/20 text-purple-300 border border-purple-500/30 px-2.5 py-1 rounded-full font-bold">
-                SMM Asset Handler Portal
+                Tier 3 — SMM Asset Handler CRUD
               </span>
               <span className={`text-[10px] font-mono px-2.5 py-1 rounded-full border flex items-center gap-1.5 transition-all ${liveSyncPulse ? "bg-emerald-500/30 border-emerald-400 text-emerald-300 scale-105" : "bg-zinc-900 border-zinc-800 text-emerald-400"}`}>
                 <span className="h-2 w-2 rounded-full bg-emerald-400 animate-ping"></span>
@@ -309,18 +397,18 @@ export default function SMMDashboard() {
             </div>
             <h1 className="text-3xl font-bold text-white mt-2">{profile.full_name}</h1>
             <p className="text-xs text-zinc-400">
-              Countries: {profile.country} • Metric Input:{" "}
+              Countries: {profile.country} • Metric CRUD Access:{" "}
               {profile.is_locked ? (
                 <span className="text-red-400 font-bold">🔒 LOCKED BY TEAM LEADER</span>
               ) : (
-                <span className="text-emerald-400 font-bold">🔓 OPEN</span>
+                <span className="text-emerald-400 font-bold">🔓 FULL CRUD UNLOCKED</span>
               )}
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <button onClick={() => setActiveTab("log")} className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${activeTab === "log" ? "bg-purple-600 text-white" : "bg-zinc-900 text-zinc-400 hover:text-white"}`}>📊 Log Asset Metrics</button>
-            <button onClick={() => setActiveTab("assets")} className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${activeTab === "assets" ? "bg-purple-600 text-white" : "bg-zinc-900 text-zinc-400 hover:text-white"}`}>🗂 My Assets ({assets.length})</button>
-            <button onClick={() => setActiveTab("register")} className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${activeTab === "register" ? "bg-emerald-600 text-white" : "bg-zinc-900 text-emerald-400 border border-emerald-500/30"}`}>+ Register New Asset</button>
+            <button onClick={() => setActiveTab("log")} className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${activeTab === "log" ? "bg-purple-600 text-white" : "bg-zinc-900 text-zinc-400 hover:text-white"}`}>📊 Weekly Metrics CRUD</button>
+            <button onClick={() => setActiveTab("assets")} className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${activeTab === "assets" ? "bg-purple-600 text-white" : "bg-zinc-900 text-zinc-400 hover:text-white"}`}>🗂 Manage Assets ({assets.length})</button>
+            <button onClick={() => setActiveTab("register")} className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${activeTab === "register" ? "bg-emerald-600 text-white" : "bg-zinc-900 text-emerald-400 border border-emerald-500/30"}`}>+ Create New Asset</button>
             <button onClick={() => setShowSettings(true)} className="px-4 py-2 bg-zinc-900 border border-zinc-700 hover:border-purple-500 rounded-lg text-xs font-bold text-zinc-200">⚙ Settings</button>
             <button onClick={async () => { await supabase.auth.signOut(); window.location.href = "/"; }} className="px-4 py-2 bg-zinc-900 border border-zinc-800 rounded-lg text-xs text-zinc-400 hover:text-red-400">Sign Out</button>
           </div>
@@ -329,7 +417,7 @@ export default function SMMDashboard() {
         {/* Asset Selector Bar */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-zinc-950 border border-zinc-800 p-4 rounded-xl">
           <div>
-            <label className="text-[10px] uppercase font-bold text-zinc-400">1. Choose Team Leader</label>
+            <label className="text-[10px] uppercase font-bold text-zinc-400">1. Filter Team Leader</label>
             <select value={selectedTl} onChange={(e) => setSelectedTl(e.target.value)} className="w-full mt-1 rounded-lg bg-zinc-900 border border-zinc-800 p-2.5 text-sm text-white outline-none">
               <option value="all">All Assigned Team Leaders</option>
               {teamLeaders.map(tl => <option key={tl.id} value={tl.id}>{tl.full_name}</option>)}
@@ -343,9 +431,9 @@ export default function SMMDashboard() {
             </select>
           </div>
           <div>
-            <label className="text-[10px] uppercase font-bold text-purple-400">3. Select Target Asset</label>
+            <label className="text-[10px] uppercase font-bold text-purple-400">3. Select Active Asset</label>
             <select value={selectedAssetId} onChange={(e) => { setSelectedAssetId(e.target.value); loadMetrics(e.target.value); }} className="w-full mt-1 rounded-lg bg-zinc-900 border border-purple-500/40 p-2.5 text-sm text-white outline-none">
-              {filteredAssets.length === 0 ? <option value="">No Assets Registered</option> : filteredAssets.map(a => (
+              {filteredAssets.length === 0 ? <option value="">No Assets Found</option> : filteredAssets.map(a => (
                 <option key={a.id} value={a.id}>ASSET: [{a.platform.toUpperCase()}] {a.account_id} ({a.status.toUpperCase()})</option>
               ))}
             </select>
@@ -354,64 +442,74 @@ export default function SMMDashboard() {
 
         {statusMsg && <div className="p-3 rounded-lg bg-purple-500/10 border border-purple-500/30 text-purple-300 text-xs text-center font-bold">{statusMsg}</div>}
 
-        {/* TAB 1: LOG WEEKLY METRICS */}
+        {/* TAB 1: WEEKLY METRICS CRUD */}
         {activeTab === "log" && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="lg:col-span-1 bg-zinc-950 border border-zinc-800 rounded-xl p-6 space-y-4">
-              <h2 className="text-lg font-bold text-white border-b border-zinc-800 pb-2">Log Weekly Asset Metrics</h2>
+              <div className="flex justify-between items-center border-b border-zinc-800 pb-2">
+                <h2 className="text-lg font-bold text-white">{editingMetricId ? "✎ Update Weekly Report" : "Log Weekly Asset Metrics"}</h2>
+                {editingMetricId && (
+                  <button type="button" onClick={resetMetricForm} className="text-xs text-zinc-400 hover:text-white underline">Cancel Edit</button>
+                )}
+              </div>
               
               {activeAsset ? (
                 <div className="p-3.5 bg-purple-950/20 rounded-lg border border-purple-500/40 space-y-1.5 text-xs">
                   <div className="flex justify-between items-center">
                     <span className="font-bold text-white text-sm uppercase">[{activeAsset.platform}] {activeAsset.account_id}</span>
                     <button type="button" onClick={() => handleToggleAssetStatus(activeAsset)} className={`px-2 py-0.5 rounded text-[10px] font-bold ${activeAsset.status === "active" ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30" : "bg-red-500/20 text-red-400 border border-red-500/30"}`}>
-                      {activeAsset.status === "active" ? "● Asset Active" : "⚠ Asset Suspended"}
+                      {activeAsset.status === "active" ? "● Active" : "⚠ Suspended"}
                     </button>
                   </div>
-                  <p className="text-zinc-400 truncate">Asset URL: {activeAsset.profile_link ? <a href={activeAsset.profile_link} target="_blank" className="text-blue-400 underline">{activeAsset.profile_link}</a> : "Pending Setup"}</p>
-                  <button type="button" onClick={() => setEditingAsset({ ...activeAsset })} className="text-[11px] text-emerald-400 underline font-bold pt-1 block">
-                    ✎ Edit / Complete Asset Credentials
-                  </button>
+                  <p className="text-zinc-400 truncate">URL: {activeAsset.profile_link || "Pending Setup"}</p>
+                  <div className="flex gap-3 pt-1">
+                    <button type="button" onClick={() => setEditingAsset({ ...activeAsset })} className="text-[11px] text-emerald-400 underline font-bold">
+                      ✎ Edit Asset
+                    </button>
+                    <button type="button" onClick={() => handleDeleteOwnAsset(activeAsset.id)} className="text-[11px] text-red-400 underline font-bold">
+                      🗑 Delete Asset
+                    </button>
+                  </div>
                   {(activeAsset.tl_task || activeAsset.tl_campaign || activeAsset.tl_comment) && (
                     <div className="mt-2 pt-2 border-t border-zinc-800 space-y-1 text-[11px]">
-                      {activeAsset.tl_campaign && <p className="text-blue-300">🎯 <b>Asset Campaign:</b> {activeAsset.tl_campaign}</p>}
-                      {activeAsset.tl_task && <p className="text-emerald-300">📋 <b>Asset Task:</b> {activeAsset.tl_task}</p>}
-                      {activeAsset.tl_comment && <p className="text-amber-300">💬 <b>TL Comment:</b> {activeAsset.tl_comment}</p>}
+                      {activeAsset.tl_campaign && <p className="text-blue-300">🎯 <b>Campaign:</b> {activeAsset.tl_campaign}</p>}
+                      {activeAsset.tl_task && <p className="text-emerald-300">📋 <b>Task:</b> {activeAsset.tl_task}</p>}
+                      {activeAsset.tl_comment && <p className="text-amber-300">💬 <b>Comment:</b> {activeAsset.tl_comment}</p>}
                     </div>
                   )}
                 </div>
               ) : (
                 <div className="p-4 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs">
-                  No Assets registered yet. Click <b>"+ Register New Asset"</b> above.
+                  No Assets registered yet. Click <b>"+ Create New Asset"</b> above.
                 </div>
               )}
 
               <form onSubmit={handleLogMetrics} autoComplete="off" className="space-y-3">
                 <div>
-                  <label className="text-[10px] uppercase font-bold text-zinc-400">Week Of (Report Date for Asset)</label>
+                  <label className="text-[10px] uppercase font-bold text-zinc-400">Week Of (Report Date)</label>
                   <input type="date" required value={weekOf} onChange={(e) => setWeekOf(e.target.value)} className="w-full mt-1 rounded-lg bg-black border border-zinc-800 p-2 text-sm text-white" />
                 </div>
                 <div className="grid grid-cols-2 gap-3">
-                  <input type="number" placeholder="Asset Impressions" value={impressions} onChange={(e) => setImpressions(e.target.value)} className="rounded-lg bg-black border border-zinc-800 p-2.5 text-sm text-white" />
-                  <input type="number" placeholder="Asset Engagements" value={engagements} onChange={(e) => setEngagements(e.target.value)} className="rounded-lg bg-black border border-zinc-800 p-2.5 text-sm text-white" />
-                  <input type="number" placeholder="Asset Likes" value={likes} onChange={(e) => setLikes(e.target.value)} className="rounded-lg bg-black border border-zinc-800 p-2.5 text-sm text-white" />
-                  <input type="number" placeholder="Asset Reposts / Shares" value={sharesReposts} onChange={(e) => setSharesReposts(e.target.value)} className="rounded-lg bg-black border border-zinc-800 p-2.5 text-sm text-white" />
-                  <input type="number" placeholder="Asset Comments" value={comments} onChange={(e) => setComments(e.target.value)} className="rounded-lg bg-black border border-zinc-800 p-2.5 text-sm text-white" />
-                  <input type="number" placeholder="Asset Posts Published" value={postsPublished} onChange={(e) => setPostsPublished(e.target.value)} className="rounded-lg bg-black border border-zinc-800 p-2.5 text-sm text-white" />
+                  <input type="number" placeholder="Impressions" value={impressions} onChange={(e) => setImpressions(e.target.value)} className="rounded-lg bg-black border border-zinc-800 p-2.5 text-sm text-white" />
+                  <input type="number" placeholder="Engagements" value={engagements} onChange={(e) => setEngagements(e.target.value)} className="rounded-lg bg-black border border-zinc-800 p-2.5 text-sm text-white" />
+                  <input type="number" placeholder="Likes" value={likes} onChange={(e) => setLikes(e.target.value)} className="rounded-lg bg-black border border-zinc-800 p-2.5 text-sm text-white" />
+                  <input type="number" placeholder="Reposts / Shares" value={sharesReposts} onChange={(e) => setSharesReposts(e.target.value)} className="rounded-lg bg-black border border-zinc-800 p-2.5 text-sm text-white" />
+                  <input type="number" placeholder="Comments" value={comments} onChange={(e) => setComments(e.target.value)} className="rounded-lg bg-black border border-zinc-800 p-2.5 text-sm text-white" />
+                  <input type="number" placeholder="Posts Published" value={postsPublished} onChange={(e) => setPostsPublished(e.target.value)} className="rounded-lg bg-black border border-zinc-800 p-2.5 text-sm text-white" />
                   <input type="number" placeholder="Followers Gained" value={followersGained} onChange={(e) => setFollowersGained(e.target.value)} className="rounded-lg bg-black border border-zinc-800 p-2.5 text-sm text-white" />
                   <input type="number" placeholder="Followers Lost" value={followersLost} onChange={(e) => setFollowersLost(e.target.value)} className="rounded-lg bg-black border border-zinc-800 p-2.5 text-sm text-white" />
-                  <input type="number" placeholder="Total Asset Followers" value={totalFollowers} onChange={(e) => setTotalFollowers(e.target.value)} className="rounded-lg bg-black border border-zinc-800 p-2.5 text-sm text-white" />
+                  <input type="number" placeholder="Total Followers" value={totalFollowers} onChange={(e) => setTotalFollowers(e.target.value)} className="rounded-lg bg-black border border-zinc-800 p-2.5 text-sm text-white" />
                   <input type="number" placeholder="Top Post Impr." value={topPostImpr} onChange={(e) => setTopPostImpr(e.target.value)} className="rounded-lg bg-black border border-zinc-800 p-2.5 text-sm text-white" />
                 </div>
                 <button type="submit" disabled={profile.is_locked || !activeAsset} className="w-full bg-purple-600 hover:bg-purple-500 disabled:opacity-40 text-white font-bold py-3 rounded-lg text-sm transition-all">
-                  {profile.is_locked ? "🔒 Asset Input Locked by Team Leader" : "Submit Weekly Asset Report"}
+                  {profile.is_locked ? "🔒 Locked by Team Leader" : editingMetricId ? "Save Updated Weekly Report" : "Create Weekly Asset Report"}
                 </button>
               </form>
             </div>
 
             <div className="lg:col-span-2 bg-zinc-950 border border-zinc-800 rounded-xl p-6 overflow-x-auto">
-              <h2 className="text-lg font-bold text-white mb-1">Weekly Asset Performance Ledger</h2>
-              <p className="text-xs text-zinc-400 mb-4">{activeAsset ? `Live history for Asset: [${activeAsset.platform.toUpperCase()}] ${activeAsset.account_id}` : "Select an Asset"}</p>
+              <h2 className="text-lg font-bold text-white mb-1">Weekly Asset Performance Ledger (Read / Edit / Delete)</h2>
+              <p className="text-xs text-zinc-400 mb-4">{activeAsset ? `History for Asset: [${activeAsset.platform.toUpperCase()}] ${activeAsset.account_id}` : "Select an Asset"}</p>
               <table className="w-full text-left text-xs text-zinc-300">
                 <thead className="bg-zinc-900 text-zinc-400 uppercase border-b border-zinc-800">
                   <tr>
@@ -419,27 +517,29 @@ export default function SMMDashboard() {
                     <th className="p-3">Impr.</th>
                     <th className="p-3">Eng.</th>
                     <th className="p-3">Eng %</th>
-                    <th className="p-3">Likes / Reposts</th>
-                    <th className="p-3">Net Followers</th>
+                    <th className="p-3">Net Fol.</th>
                     <th className="p-3">Total Fol.</th>
-                    <th className="p-3">Posts (Posts/Day)</th>
+                    <th className="p-3">Posts</th>
+                    <th className="p-3 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-800">
                   {metricsHistory.map(m => {
                     const engRate = m.impressions > 0 ? ((m.engagements / m.impressions) * 100).toFixed(2) : "0.00";
                     const netFol = (m.followers_gained || 0) - (m.followers_lost || 0);
-                    const postsPerDay = ((m.posts_published || 0) / 7).toFixed(1);
                     return (
                       <tr key={m.id} className="hover:bg-zinc-900/50 font-mono">
                         <td className="p-3 font-bold text-white">{m.week_of}</td>
                         <td className="p-3 text-blue-400">{m.impressions.toLocaleString()}</td>
                         <td className="p-3 text-purple-400">{m.engagements.toLocaleString()}</td>
                         <td className="p-3 text-emerald-400">{engRate}%</td>
-                        <td className="p-3">{m.likes} / {m.shares_reposts}</td>
                         <td className={`p-3 font-bold ${netFol >= 0 ? "text-emerald-400" : "text-red-400"}`}>{netFol >= 0 ? `+${netFol}` : netFol}</td>
                         <td className="p-3 text-white">{m.total_followers.toLocaleString()}</td>
-                        <td className="p-3">{m.posts_published} ({postsPerDay}/d)</td>
+                        <td className="p-3">{m.posts_published}</td>
+                        <td className="p-3 text-right space-x-2 font-sans">
+                          <button disabled={profile.is_locked} onClick={() => loadMetricRowForEdit(m)} className="text-emerald-400 hover:underline disabled:opacity-30">Edit</button>
+                          <button disabled={profile.is_locked} onClick={() => handleDeleteMetricRow(m.id)} className="text-red-400 hover:underline disabled:opacity-30">Delete</button>
+                        </td>
                       </tr>
                     );
                   })}
@@ -450,16 +550,13 @@ export default function SMMDashboard() {
           </div>
         )}
 
-        {/* TAB 2: REGISTER NEW ASSET */}
+        {/* TAB 2: CREATE NEW ASSET */}
         {activeTab === "register" && (
           <div className="max-w-2xl mx-auto bg-zinc-950 border border-zinc-800 rounded-xl p-8">
-            <h2 className="text-xl font-bold text-white mb-1">2.1 Register New Asset Details</h2>
+            <h2 className="text-xl font-bold text-white mb-1">2.1 Create & Register New Asset</h2>
             <p className="text-xs text-emerald-400 mb-6">Enter credentials strictly for the Social Media Asset you are handling.</p>
             
             <form onSubmit={handleRegisterAsset} autoComplete="off" className="space-y-4">
-              <input type="text" name="prevent_autofill_user" style={{ display: "none" }} tabIndex={-1} autoComplete="off" />
-              <input type="password" name="prevent_autofill_pass" style={{ display: "none" }} tabIndex={-1} autoComplete="new-password" />
-
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <div>
                   <label className="text-[10px] uppercase font-bold text-zinc-400">Asset Platform</label>
@@ -475,46 +572,46 @@ export default function SMMDashboard() {
                 </div>
                 <div>
                   <label className="text-[10px] uppercase font-bold text-zinc-400">Asset Project / Campaign</label>
-                  <input type="text" autoComplete="off" required value={regProject} onChange={(e) => setRegProject(e.target.value)} className="w-full mt-1 rounded-lg bg-black border border-zinc-800 p-3 text-sm text-white" />
+                  <input type="text" required value={regProject} onChange={(e) => setRegProject(e.target.value)} className="w-full mt-1 rounded-lg bg-black border border-zinc-800 p-3 text-sm text-white" />
                 </div>
               </div>
 
               <div>
                 <label className="text-[10px] uppercase font-bold text-zinc-400">1. Asset Profile Link</label>
-                <input type="url" autoComplete="off" required value={profileLink} onChange={(e) => setProfileLink(e.target.value)} placeholder="https://x.com/your_asset_handle" className="w-full mt-1 rounded-lg bg-black border border-zinc-800 p-3 text-sm text-white" />
+                <input type="url" required value={profileLink} onChange={(e) => setProfileLink(e.target.value)} placeholder="https://x.com/your_asset_handle" className="w-full mt-1 rounded-lg bg-black border border-zinc-800 p-3 text-sm text-white" />
               </div>
 
               <div>
                 <label className="text-[10px] uppercase font-bold text-zinc-400">2. Asset Bio</label>
-                <input type="text" autoComplete="off" required value={bio} onChange={(e) => setBio(e.target.value)} placeholder="Bio written on the Asset profile" className="w-full mt-1 rounded-lg bg-black border border-zinc-800 p-3 text-sm text-white" />
+                <input type="text" required value={bio} onChange={(e) => setBio(e.target.value)} placeholder="Bio written on the Asset profile" className="w-full mt-1 rounded-lg bg-black border border-zinc-800 p-3 text-sm text-white" />
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>
                   <label className="text-[10px] uppercase font-bold text-zinc-400">3. Asset ID (Username / @Handle)</label>
-                  <input type="text" autoComplete="off" required value={accountId} onChange={(e) => setAccountId(e.target.value)} placeholder="e.g. @SaharaVoiceX" className="w-full mt-1 rounded-lg bg-black border border-zinc-800 p-3 text-sm text-white" />
+                  <input type="text" required value={accountId} onChange={(e) => setAccountId(e.target.value)} placeholder="e.g. @SaharaVoiceX" className="w-full mt-1 rounded-lg bg-black border border-zinc-800 p-3 text-sm text-white" />
                 </div>
                 <div>
                   <label className="text-[10px] uppercase font-bold text-zinc-400">4. Asset Password</label>
-                  <input type="text" autoComplete="off" required value={accountPassword} onChange={(e) => setAccountPassword(e.target.value)} placeholder="Asset's Social Media Password" className="w-full mt-1 rounded-lg bg-black border border-zinc-800 p-3 text-sm text-white" />
+                  <input type="text" required value={accountPassword} onChange={(e) => setAccountPassword(e.target.value)} placeholder="Asset's Social Media Password" className="w-full mt-1 rounded-lg bg-black border border-zinc-800 p-3 text-sm text-white" />
                 </div>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>
                   <label className="text-[10px] uppercase font-bold text-zinc-400">5. Asset Email</label>
-                  <input type="email" autoComplete="off" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="asset_email@domain.com" className="w-full mt-1 rounded-lg bg-black border border-zinc-800 p-3 text-sm text-white" />
+                  <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="asset_email@domain.com" className="w-full mt-1 rounded-lg bg-black border border-zinc-800 p-3 text-sm text-white" />
                 </div>
                 <div>
                   <label className="text-[10px] uppercase font-bold text-zinc-400">6. Asset Email Password</label>
-                  <input type="text" autoComplete="off" required value={emailPassword} onChange={(e) => setEmailPassword(e.target.value)} placeholder="Password for the Asset's Email" className="w-full mt-1 rounded-lg bg-black border border-zinc-800 p-3 text-sm text-white" />
+                  <input type="text" required value={emailPassword} onChange={(e) => setEmailPassword(e.target.value)} placeholder="Password for the Asset's Email" className="w-full mt-1 rounded-lg bg-black border border-zinc-800 p-3 text-sm text-white" />
                 </div>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <div>
                   <label className="text-[10px] uppercase font-bold text-zinc-400">7. Asset 2FA Code</label>
-                  <input type="text" autoComplete="off" value={twoFaCode} onChange={(e) => setTwoFaCode(e.target.value)} placeholder="Asset 2FA / Backup Key" className="w-full mt-1 rounded-lg bg-black border border-zinc-800 p-3 text-sm text-white" />
+                  <input type="text" value={twoFaCode} onChange={(e) => setTwoFaCode(e.target.value)} placeholder="Asset 2FA / Backup Key" className="w-full mt-1 rounded-lg bg-black border border-zinc-800 p-3 text-sm text-white" />
                 </div>
                 <div>
                   <label className="text-[10px] uppercase font-bold text-zinc-400">8. Asset Country</label>
@@ -524,22 +621,22 @@ export default function SMMDashboard() {
                 </div>
                 <div>
                   <label className="text-[10px] uppercase font-bold text-zinc-400">9. Asset Phone Number</label>
-                  <input type="text" autoComplete="off" value={phoneNumber} onChange={(e) => setPhoneNumber(e.target.value)} placeholder="Phone linked to Asset" className="w-full mt-1 rounded-lg bg-black border border-zinc-800 p-3 text-sm text-white" />
+                  <input type="text" value={phoneNumber} onChange={(e) => setPhoneNumber(e.target.value)} placeholder="Phone linked to Asset" className="w-full mt-1 rounded-lg bg-black border border-zinc-800 p-3 text-sm text-white" />
                 </div>
               </div>
 
               <button type="submit" className="w-full bg-emerald-500 hover:bg-emerald-400 text-black font-bold py-3 rounded-lg text-sm transition-all mt-2">
-                Save & Register Asset
+                Create & Save Asset
               </button>
             </form>
           </div>
         )}
 
-        {/* TAB 3: MY REGISTERED ASSETS */}
+        {/* TAB 3: READ / UPDATE / DELETE ASSETS */}
         {activeTab === "assets" && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {filteredAssets.map(asset => (
-              <div key={asset.id} className="group bg-zinc-950 border border-zinc-800 hover:border-purple-500/50 rounded-2xl p-5 space-y-3 transition-all duration-300 hover:-translate-y-1">
+              <div key={asset.id} className="group bg-zinc-950 border border-zinc-800 hover:border-purple-500/50 rounded-2xl p-5 space-y-3 transition-all">
                 <div className="flex justify-between items-center">
                   <span className="px-2.5 py-1 rounded bg-purple-500/10 border border-purple-500/30 text-purple-300 text-xs font-bold uppercase">ASSET: {asset.platform}</span>
                   <button onClick={() => handleToggleAssetStatus(asset)} className={`px-3 py-1 rounded-full text-xs font-bold transition-all ${asset.status === "active" ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/40" : "bg-red-500/20 text-red-400 border border-red-500/40"}`}>
@@ -547,7 +644,7 @@ export default function SMMDashboard() {
                   </button>
                 </div>
                 <div>
-                  <h3 className="text-lg font-bold text-white">Asset ID: {asset.account_id}</h3>
+                  <h3 className="text-lg font-bold text-white">{asset.account_id}</h3>
                   <a href={asset.profile_link} target="_blank" className="text-xs text-blue-400 underline truncate block">{asset.profile_link || "Pending Profile URL"}</a>
                   <p className="text-xs text-zinc-400 mt-1 italic">Bio: "{asset.bio || "Not set"}"</p>
                 </div>
@@ -557,18 +654,15 @@ export default function SMMDashboard() {
                   <div><b>Email:</b> {asset.email || "N/A"}</div>
                   <div><b>Pass:</b> {autoMaskVault ? "••••••••" : (asset.account_password || "N/A")}</div>
                 </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    onClick={() => setEditingAsset({ ...asset })}
-                    className="py-2 bg-zinc-900 border border-zinc-700 hover:border-emerald-500 text-emerald-400 rounded-lg text-xs font-bold"
-                  >
-                    ✎ Edit Credentials
+                <div className="grid grid-cols-3 gap-2 pt-1">
+                  <button onClick={() => setEditingAsset({ ...asset })} className="py-2 bg-zinc-900 border border-zinc-700 hover:border-emerald-500 text-emerald-400 rounded-lg text-xs font-bold">
+                    ✎ Edit
                   </button>
-                  <button
-                    onClick={() => { setSelectedAssetId(asset.id); loadMetrics(asset.id); setActiveTab("log"); }}
-                    className="py-2 bg-purple-600/20 border border-purple-500/40 text-purple-300 hover:bg-purple-600 hover:text-white rounded-lg text-xs font-bold"
-                  >
-                    📊 Log Metrics →
+                  <button onClick={() => handleDeleteOwnAsset(asset.id)} className="py-2 bg-zinc-900 border border-zinc-700 hover:border-red-500 text-red-400 rounded-lg text-xs font-bold">
+                    🗑 Delete
+                  </button>
+                  <button onClick={() => { setSelectedAssetId(asset.id); loadMetrics(asset.id); setActiveTab("log"); }} className="py-2 bg-purple-600/20 border border-purple-500/40 text-purple-300 hover:bg-purple-600 hover:text-white rounded-lg text-xs font-bold">
+                    📊 Logs
                   </button>
                 </div>
               </div>
@@ -578,13 +672,28 @@ export default function SMMDashboard() {
 
       </div>
 
-      {/* EDIT / COMPLETE EXISTING ASSET MODAL */}
+      {/* EDIT ASSET MODAL */}
       {editingAsset && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4" onClick={() => setEditingAsset(null)}>
           <form onSubmit={handleUpdateExistingAsset} onClick={(e) => e.stopPropagation()} className="w-full max-w-lg bg-zinc-950 border border-emerald-500/40 rounded-2xl p-6 space-y-3 shadow-2xl">
             <div className="flex justify-between items-center border-b border-zinc-800 pb-3">
-              <h3 className="text-base font-bold text-white">Edit / Complete Asset Credentials ({editingAsset.platform.toUpperCase()})</h3>
+              <h3 className="text-base font-bold text-white">Update Asset ({editingAsset.platform.toUpperCase()})</h3>
               <button type="button" onClick={() => setEditingAsset(null)} className="text-xs text-zinc-400 hover:text-white">✕</button>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-[10px] uppercase font-bold text-zinc-400">Platform</label>
+                <select value={editingAsset.platform} onChange={(e) => setEditingAsset({ ...editingAsset, platform: e.target.value })} className="w-full mt-1 rounded bg-black border border-zinc-800 p-2 text-xs text-white uppercase">
+                  {PLATFORMS.map(p => <option key={p} value={p}>{p}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-[10px] uppercase font-bold text-zinc-400">Status</label>
+                <select value={editingAsset.status} onChange={(e) => setEditingAsset({ ...editingAsset, status: e.target.value })} className="w-full mt-1 rounded bg-black border border-zinc-800 p-2 text-xs text-white uppercase">
+                  <option value="active">ACTIVE</option>
+                  <option value="suspended">SUSPENDED</option>
+                </select>
+              </div>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
@@ -621,7 +730,7 @@ export default function SMMDashboard() {
               </select>
               <input type="text" placeholder="Phone" value={editingAsset.phone_number || ""} onChange={(e) => setEditingAsset({ ...editingAsset, phone_number: e.target.value })} className="rounded bg-black border border-zinc-800 p-2 text-xs text-white" />
             </div>
-            <button type="submit" className="w-full py-2.5 bg-emerald-500 text-black font-bold rounded-lg text-xs">Save & Sync Asset</button>
+            <button type="submit" className="w-full py-2.5 bg-emerald-500 text-black font-bold rounded-lg text-xs">Save Asset Changes</button>
           </form>
         </div>
       )}
@@ -644,7 +753,7 @@ export default function SMMDashboard() {
             </div>
 
             <div>
-              <label className="text-[10px] uppercase font-bold text-zinc-400">Assigned Team Leaders (Multi-Select)</label>
+              <label className="text-[10px] uppercase font-bold text-zinc-400">Assigned Team Leaders</label>
               <div className="grid grid-cols-3 gap-2 mt-1">
                 {allTeamLeaders.map(tl => (
                   <button type="button" key={tl.id} onClick={() => toggleArrayItem(tl.id, setTlIds, setSetTlIds)} className={`py-2 px-2 rounded text-xs font-bold border truncate ${setTlIds.includes(tl.id) ? "bg-blue-500/20 border-blue-500 text-blue-300" : "bg-black border-zinc-800 text-zinc-500"}`}>

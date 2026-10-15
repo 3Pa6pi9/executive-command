@@ -37,7 +37,17 @@ export default function TeamLeaderPortal() {
   const [broadcastCampaign, setBroadcastCampaign] = useState("");
   const [broadcastTask, setBroadcastTask] = useState("");
 
-  // Flexible Give Asset State
+  // CRUD: Onboard New Squad SMM Modal
+  const [showCreateSmmModal, setShowCreateSmmModal] = useState(false);
+  const [newSmmName, setNewSmmName] = useState("");
+  const [newSmmEmail, setNewSmmEmail] = useState("");
+  const [newSmmPass, setNewSmmPass] = useState("");
+  const [newSmmCountry, setNewSmmCountry] = useState("Africa");
+
+  // CRUD: Edit Squad SMM Modal
+  const [editingSmm, setEditingSmm] = useState<any>(null);
+
+  // CRUD: Create / Give Asset Modal
   const [showGiveModal, setShowGiveModal] = useState(false);
   const [assignSmmId, setAssignSmmId] = useState("");
   const [assignPlatform, setAssignPlatform] = useState("twitter");
@@ -154,6 +164,77 @@ export default function TeamLeaderPortal() {
     setSquadMetrics(metrics || []);
   };
 
+  // SQUAD SMM CRUD: CREATE
+  const handleCreateSquadSmm = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const res = await fetch("/api/crud", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        actorId: tlProfile.id,
+        entity: "profile",
+        action: "create",
+        payload: {
+          email: newSmmEmail,
+          password: newSmmPass,
+          full_name: newSmmName,
+          country: newSmmCountry
+        }
+      })
+    });
+    const data = await res.json();
+    if (res.ok) {
+      setStatusMsg(`SMM ${newSmmName} onboarded into your squad!`);
+      setNewSmmName(""); setNewSmmEmail(""); setNewSmmPass("");
+      setShowCreateSmmModal(false);
+      await loadSquadData(tlProfile.id);
+    } else {
+      setStatusMsg("Error: " + data.error);
+    }
+  };
+
+  // SQUAD SMM CRUD: UPDATE
+  const handleUpdateSquadSmm = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingSmm) return;
+    await fetch("/api/crud", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        actorId: tlProfile.id,
+        entity: "profile",
+        action: "update",
+        payload: {
+          targetId: editingSmm.id,
+          full_name: editingSmm.full_name,
+          country: editingSmm.country,
+          is_locked: editingSmm.is_locked
+        }
+      })
+    });
+    setStatusMsg("Squad SMM profile updated!");
+    setEditingSmm(null);
+    await loadSquadData(tlProfile.id);
+  };
+
+  // SQUAD SMM CRUD: REMOVE FROM SQUAD
+  const handleRemoveSmmFromSquad = async (smmId: string, smmName: string) => {
+    if (!confirm(`Remove ${smmName} from your squad?`)) return;
+    await fetch("/api/crud", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        actorId: tlProfile.id,
+        entity: "profile",
+        action: "remove_from_squad",
+        payload: { targetId: smmId, tlId: tlProfile.id }
+      })
+    });
+    if (selectedSmm === smmId) setSelectedSmm(null);
+    setStatusMsg(`${smmName} removed from squad.`);
+    await loadSquadData(tlProfile.id);
+  };
+
   const handleToggleLock = async (smm: any) => {
     await supabase.from("profiles").update({ is_locked: !smm.is_locked }).eq("id", smm.id);
     setStatusMsg(`${smm.full_name}'s weekly Asset metric input is now ${!smm.is_locked ? "LOCKED 🔒" : "UNLOCKED 🔓"}`);
@@ -214,17 +295,30 @@ export default function TeamLeaderPortal() {
     setShowSettings(false);
   };
 
-  const handleUpdateAssetDirectives = async (assetId: string, tl_campaign: string, tl_task: string, tl_comment: string) => {
-    await supabase.from("social_assets").update({ tl_campaign, tl_task, tl_comment }).eq("id", assetId);
-    setStatusMsg("Directives & comments synced live to Asset!");
+  // SQUAD ASSET CRUD: UPDATE (Full fields + Reassign SMM + Directives)
+  const handleFullUpdateSquadAsset = async (updatedAsset: any) => {
+    await fetch("/api/crud", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        actorId: tlProfile.id,
+        entity: "asset",
+        action: "update",
+        payload: updatedAsset
+      })
+    });
+    setStatusMsg("Asset updated & synced live!");
+    await loadSquadData(tlProfile.id);
   };
 
+  // SQUAD ASSET CRUD: DELETE
   const handleRemoveAsset = async (assetId: string) => {
-    if (!confirm("Remove this Asset from the manager?")) return;
+    if (!confirm("Permanently delete this Asset from the squad?")) return;
     await supabase.from("social_assets").delete().eq("id", assetId);
-    setStatusMsg("Asset removed.");
+    setStatusMsg("Asset deleted.");
   };
 
+  // SQUAD ASSET CRUD: CREATE
   const handleGiveAsset = async (e: React.FormEvent) => {
     e.preventDefault();
     await supabase.from("social_assets").insert([{
@@ -241,7 +335,39 @@ export default function TeamLeaderPortal() {
     }]);
     setShowGiveModal(false);
     setAssignAccountId(""); setAssignPass(""); setAssignEmail(""); setAssignEmailPass(""); setAssignLink("");
-    setStatusMsg("New Asset handed over to manager live!");
+    setStatusMsg("New Asset created & assigned to manager live!");
+  };
+
+  // SQUAD METRIC CRUD: UPDATE & DELETE
+  const handleTlUpdateMetric = async (metricRow: any) => {
+    await fetch("/api/crud", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        actorId: tlProfile.id,
+        entity: "metric",
+        action: "update",
+        payload: metricRow
+      })
+    });
+    setStatusMsg("Weekly metric record updated by Team Leader!");
+    await loadSquadData(tlProfile.id);
+  };
+
+  const handleTlDeleteMetric = async (metricId: string) => {
+    if (!confirm("Delete this weekly metric row?")) return;
+    await fetch("/api/crud", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        actorId: tlProfile.id,
+        entity: "metric",
+        action: "delete",
+        payload: { id: metricId }
+      })
+    });
+    setStatusMsg("Weekly metric row deleted.");
+    await loadSquadData(tlProfile.id);
   };
 
   if (isCheckingAuth) return <div className="flex min-h-screen items-center justify-center bg-black text-blue-400 font-mono text-sm animate-pulse">Connecting Team Leader Realtime Stream...</div>;
@@ -314,12 +440,12 @@ export default function TeamLeaderPortal() {
     <div className="min-h-screen bg-black text-zinc-100 p-4 md:p-8 font-sans">
       <div className="max-w-7xl mx-auto space-y-6">
         
-        {/* Header with Live Sync Badge */}
+        {/* Header */}
         <div className="flex flex-wrap justify-between items-center border-b border-zinc-800 pb-5 gap-4">
           <div>
             <div className="flex items-center gap-2">
               <span className="text-[10px] uppercase tracking-widest bg-blue-500/20 text-blue-300 border border-blue-500/30 px-2.5 py-1 rounded-full font-bold">
-                Tier 2 — Team Leader Command
+                Tier 2 — Squad Command CRUD
               </span>
               <span className={`text-[10px] font-mono px-2.5 py-1 rounded-full border flex items-center gap-1.5 transition-all ${liveSyncPulse ? "bg-emerald-500/30 border-emerald-400 text-emerald-300 scale-105" : "bg-zinc-900 border-zinc-800 text-emerald-400"}`}>
                 <span className="h-2 w-2 rounded-full bg-emerald-400 animate-ping"></span>
@@ -330,11 +456,14 @@ export default function TeamLeaderPortal() {
             <p className="text-xs text-zinc-400">Assigned Countries: {tlProfile.country} • Squad SMMs: {squadMembers.length} • Total Squad Assets: {squadAssets.length}</p>
           </div>
           <div className="flex flex-wrap gap-2.5">
+            <button onClick={() => setShowCreateSmmModal(!showCreateSmmModal)} className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg text-xs transition-all">
+              + Onboard Squad SMM
+            </button>
             <button onClick={() => setShowGiveModal(!showGiveModal)} className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-black font-bold rounded-lg text-xs transition-all">
-              + Give Asset to Manager
+              + Create / Give Asset
             </button>
             <button onClick={() => setShowSettings(true)} className="px-4 py-2 bg-zinc-900 border border-zinc-700 hover:border-blue-500 rounded-lg text-xs font-bold text-zinc-200">
-              ⚙ Squad & Profile Settings
+              ⚙ Squad Settings
             </button>
             <button onClick={async () => { await supabase.auth.signOut(); setTlProfile(null); }} className="px-4 py-2 bg-zinc-900 border border-zinc-800 rounded-lg text-xs text-zinc-400 hover:text-red-400">
               Sign Out
@@ -344,11 +473,32 @@ export default function TeamLeaderPortal() {
 
         {statusMsg && <div className="p-3 rounded-lg bg-blue-500/10 border border-blue-500/30 text-blue-300 text-xs text-center font-bold">{statusMsg}</div>}
 
-        {/* Flexible Give Asset Modal */}
+        {/* CRUD MODAL: ONBOARD NEW SQUAD SMM */}
+        {showCreateSmmModal && (
+          <form onSubmit={handleCreateSquadSmm} className="bg-zinc-950 border border-blue-500/40 p-6 rounded-2xl space-y-4 shadow-2xl">
+            <div className="flex justify-between items-center border-b border-zinc-800 pb-3">
+              <h3 className="text-sm font-bold text-blue-400 uppercase">Create & Onboard New SMM Handler Into Your Squad</h3>
+              <button type="button" onClick={() => setShowCreateSmmModal(false)} className="text-xs text-zinc-500 hover:text-white">✕ Close</button>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+              <input type="text" required value={newSmmName} onChange={(e) => setNewSmmName(e.target.value)} placeholder="Handler Full Name" className="rounded-lg bg-black border border-zinc-800 p-2.5 text-sm text-white" />
+              <input type="email" required value={newSmmEmail} onChange={(e) => setNewSmmEmail(e.target.value)} placeholder="smm@executive.com" className="rounded-lg bg-black border border-zinc-800 p-2.5 text-sm text-white" />
+              <input type="password" required value={newSmmPass} onChange={(e) => setNewSmmPass(e.target.value)} placeholder="Initial Password" className="rounded-lg bg-black border border-zinc-800 p-2.5 text-sm text-white" />
+              <select value={newSmmCountry} onChange={(e) => setNewSmmCountry(e.target.value)} className="rounded-lg bg-black border border-zinc-800 p-2.5 text-sm text-white">
+                {HIERARCHY_COUNTRIES.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+            <button type="submit" className="px-6 py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg text-xs">
+              Create & Assign SMM to My Squad
+            </button>
+          </form>
+        )}
+
+        {/* CRUD MODAL: CREATE / GIVE ASSET */}
         {showGiveModal && (
           <form onSubmit={handleGiveAsset} autoComplete="off" className="bg-zinc-950 border border-emerald-500/40 p-6 rounded-2xl space-y-4 shadow-2xl">
             <div className="flex justify-between items-center border-b border-zinc-800 pb-3">
-              <h3 className="text-sm font-bold text-emerald-400 uppercase">Give / Hand Over Asset to Squad Manager</h3>
+              <h3 className="text-sm font-bold text-emerald-400 uppercase">Create / Hand Over Asset to Squad Manager</h3>
               <button type="button" onClick={() => setShowGiveModal(false)} className="text-xs text-zinc-500 hover:text-white">✕ Close</button>
             </div>
 
@@ -400,7 +550,7 @@ export default function TeamLeaderPortal() {
               {(handoverType === "credentials_only" || handoverType === "full") && (
                 <>
                   <div>
-                    <label className="text-[10px] uppercase font-bold text-zinc-400">Handover Email (For account creation)</label>
+                    <label className="text-[10px] uppercase font-bold text-zinc-400">Handover Email</label>
                     <input type="email" required value={assignEmail} onChange={(e) => setAssignEmail(e.target.value)} placeholder="asset_email@domain.com" className="w-full mt-1 rounded-lg bg-black border border-zinc-800 p-2.5 text-sm text-white" />
                   </div>
                   <div>
@@ -417,16 +567,16 @@ export default function TeamLeaderPortal() {
             </div>
 
             <button type="submit" className="w-full py-3 bg-emerald-500 hover:bg-emerald-400 text-black font-bold rounded-lg text-xs transition-all">
-              Confirm Asset Handover
+              Confirm Asset Creation & Handover
             </button>
           </form>
         )}
 
-        {/* Squad Managers Grid */}
+        {/* Squad Managers Grid with Full Edit / Remove / Lock CRUD */}
         <div className="space-y-3">
           <div className="flex flex-wrap justify-between items-center gap-2">
             <h2 className="text-xs font-bold uppercase tracking-wider text-blue-400">
-              Click any Squad Manager to slide open their Assets & Directives panel on the right
+              1. Squad Managers (Click Card to Inspect Assets & Weekly Metrics • Edit or Remove SMM)
             </h2>
             <div className="flex gap-2">
               <button onClick={() => handleBatchSquadLock(true)} className="px-3 py-1 bg-red-500/15 border border-red-500/40 text-red-400 rounded-lg text-xs font-bold hover:bg-red-500 hover:text-black transition-all">
@@ -480,58 +630,84 @@ export default function TeamLeaderPortal() {
                     <div><span className="text-zinc-500 block text-[10px]">TOTAL ENG.</span><span className="text-purple-400 font-bold text-base">{totalEng.toLocaleString()}</span></div>
                   </div>
 
-                  <div className="mt-4 pt-2.5 border-t border-zinc-900 flex justify-between items-center text-xs text-blue-400 font-bold">
-                    <span>Slide Open {smmAssets.length} Assets</span>
-                    <span className="transform group-hover:translate-x-1 transition-transform">→</span>
+                  <div className="mt-4 pt-2.5 border-t border-zinc-900 flex justify-between items-center text-xs">
+                    <div className="space-x-3" onClick={(e) => e.stopPropagation()}>
+                      <button onClick={() => setEditingSmm({ ...smm })} className="text-emerald-400 hover:underline font-bold">✎ Edit SMM</button>
+                      <button onClick={() => handleRemoveSmmFromSquad(smm.id, smm.full_name)} className="text-red-400 hover:underline font-bold">✕ Remove</button>
+                    </div>
+                    <span className="text-blue-400 font-bold">Assets →</span>
                   </div>
                 </div>
               );
             })}
-            {squadMembers.length === 0 && <div className="col-span-3 text-zinc-500 text-sm p-6 bg-zinc-950 border border-zinc-800 rounded-xl">No SMMs have registered under your Team Leader profile yet.</div>}
+            {squadMembers.length === 0 && <div className="col-span-3 text-zinc-500 text-sm p-6 bg-zinc-950 border border-zinc-800 rounded-xl">No SMMs in your squad yet. Click "+ Onboard Squad SMM" above.</div>}
           </div>
         </div>
 
       </div>
 
-      {/* SLIDE-OVER RIGHT PANEL FOR SELECTED SMM MANAGER'S ASSETS */}
+      {/* EDIT SQUAD SMM MODAL */}
+      {editingSmm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4" onClick={() => setEditingSmm(null)}>
+          <form onSubmit={handleUpdateSquadSmm} onClick={(e) => e.stopPropagation()} className="w-full max-w-md bg-zinc-950 border border-blue-500/40 rounded-2xl p-6 space-y-4 shadow-2xl">
+            <div className="flex justify-between items-center border-b border-zinc-800 pb-3">
+              <h3 className="text-base font-bold text-white">Edit Squad SMM Profile</h3>
+              <button type="button" onClick={() => setEditingSmm(null)} className="text-xs text-zinc-400">✕</button>
+            </div>
+            <div>
+              <label className="text-[10px] uppercase font-bold text-zinc-400">Handler Name</label>
+              <input type="text" required value={editingSmm.full_name || ""} onChange={(e) => setEditingSmm({ ...editingSmm, full_name: e.target.value })} className="w-full mt-1 rounded bg-black border border-zinc-800 p-2.5 text-sm text-white" />
+            </div>
+            <div>
+              <label className="text-[10px] uppercase font-bold text-zinc-400">Assigned Countries</label>
+              <input type="text" required value={editingSmm.country || ""} onChange={(e) => setEditingSmm({ ...editingSmm, country: e.target.value })} className="w-full mt-1 rounded bg-black border border-zinc-800 p-2.5 text-sm text-white" />
+            </div>
+            <button type="submit" className="w-full py-2.5 bg-blue-600 text-white font-bold rounded-lg text-xs">Save SMM Changes</button>
+          </form>
+        </div>
+      )}
+
+      {/* SLIDE-OVER RIGHT PANEL FOR SELECTED SMM MANAGER'S ASSETS & WEEKLY METRICS CRUD */}
       {activeSmmObj && (
         <div className="fixed inset-0 z-50 flex justify-end bg-black/75 backdrop-blur-sm" onClick={() => setSelectedSmm(null)}>
           <div
-            className="w-full max-w-2xl bg-zinc-950 border-l border-blue-500/40 h-full overflow-y-auto p-6 md:p-8 space-y-6 shadow-2xl"
+            className="w-full max-w-3xl bg-zinc-950 border-l border-blue-500/40 h-full overflow-y-auto p-6 md:p-8 space-y-6 shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex justify-between items-center border-b border-zinc-800 pb-4">
               <div>
                 <span className="text-[10px] uppercase tracking-widest bg-blue-500/20 text-blue-300 px-2.5 py-1 rounded-full font-bold">
-                  Manager Asset Inspector
+                  Squad Asset & Metric CRUD Inspector
                 </span>
                 <h2 className="text-2xl font-bold text-white mt-2">
                   {activeSmmObj.full_name}&apos;s Assets ({filteredAssets.length})
                 </h2>
-                <p className="text-xs text-zinc-400">Assign campaigns, weekly tasks, and comments in real time</p>
+                <p className="text-xs text-zinc-400">Full CRUD: Edit credentials, reassign SMM, toggle status, or edit/delete weekly metrics</p>
               </div>
               <button onClick={() => setSelectedSmm(null)} className="px-3 py-1.5 rounded-lg bg-zinc-900 border border-zinc-700 text-xs text-zinc-300 hover:text-white">
                 ✕ Close Panel
               </button>
             </div>
 
-            <div className="space-y-4">
+            <div className="space-y-5">
               {filteredAssets.map(asset => {
-                const latest = squadMetrics.filter(m => m.asset_id === asset.id)[0];
+                const assetLogs = squadMetrics.filter(m => m.asset_id === asset.id);
                 return (
                   <AssetDirectiveCard
                     key={asset.id}
                     asset={asset}
-                    ownerName={activeSmmObj.full_name}
-                    latestMetric={latest}
-                    onSave={handleUpdateAssetDirectives}
+                    squadMembers={squadMembers}
+                    assetLogs={assetLogs}
+                    onFullSave={handleFullUpdateSquadAsset}
                     onRemove={handleRemoveAsset}
+                    onUpdateMetric={handleTlUpdateMetric}
+                    onDeleteMetric={handleTlDeleteMetric}
                   />
                 );
               })}
               {filteredAssets.length === 0 && (
                 <div className="text-center py-12 text-zinc-500 text-sm border border-dashed border-zinc-800 rounded-xl">
-                  {activeSmmObj.full_name} has not been assigned any Assets yet.
+                  {activeSmmObj.full_name} has no Assets assigned yet.
                 </div>
               )}
             </div>
@@ -551,7 +727,6 @@ export default function TeamLeaderPortal() {
               <button type="button" onClick={() => setShowSettings(false)} className="px-3 py-1 rounded bg-zinc-900 text-xs text-zinc-400">✕ Close</button>
             </div>
 
-            {/* Squad-Wide Directive Broadcast */}
             <div className="p-4 bg-black border border-blue-500/30 rounded-xl space-y-3">
               <h3 className="text-xs font-bold uppercase text-blue-400">📢 Broadcast Directive to All Squad Assets ({squadAssets.length})</h3>
               <input type="text" value={broadcastCampaign} onChange={(e) => setBroadcastCampaign(e.target.value)} placeholder="Global Squad Campaign Name" className="w-full rounded bg-zinc-950 border border-zinc-800 p-2 text-xs text-white" />
@@ -561,7 +736,6 @@ export default function TeamLeaderPortal() {
               </button>
             </div>
 
-            {/* Commander Profile Form */}
             <form onSubmit={handleSaveTLSettings} className="space-y-4 border-t border-zinc-800 pt-4">
               <div>
                 <label className="text-[10px] uppercase font-bold text-zinc-400">Commander Display Name</label>
@@ -596,60 +770,121 @@ export default function TeamLeaderPortal() {
   );
 }
 
-function AssetDirectiveCard({ asset, ownerName, latestMetric, onSave, onRemove }: any) {
-  const [campaign, setCampaign] = useState(asset.tl_campaign || "");
-  const [task, setTask] = useState(asset.tl_task || "");
-  const [comment, setComment] = useState(asset.tl_comment || "");
-  const [showVault, setShowVault] = useState(false);
+function AssetDirectiveCard({ asset, squadMembers, assetLogs, onFullSave, onRemove, onUpdateMetric, onDeleteMetric }: any) {
+  const [formState, setFormState] = useState({ ...asset });
+  const [showVaultEdit, setShowVaultEdit] = useState(false);
+  const [showMetricsTable, setShowMetricsTable] = useState(false);
+  const [editingMetricRow, setEditingMetricRow] = useState<any>(null);
 
   useEffect(() => {
-    setCampaign(asset.tl_campaign || "");
-    setTask(asset.tl_task || "");
-    setComment(asset.tl_comment || "");
-  }, [asset.tl_campaign, asset.tl_task, asset.tl_comment]);
+    setFormState({ ...asset });
+  }, [asset]);
 
   return (
     <div className="bg-black border border-zinc-800 rounded-xl p-5 space-y-4">
-      <div className="flex justify-between items-center border-b border-zinc-800 pb-3">
-        <div>
-          <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-blue-500/20 text-blue-300 mr-2">ASSET: {asset.platform}</span>
+      <div className="flex flex-wrap justify-between items-center border-b border-zinc-800 pb-3 gap-2">
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-blue-500/20 text-blue-300">ASSET: {asset.platform}</span>
           <span className="font-bold text-white">{asset.account_id}</span>
+          <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${asset.status === "active" ? "bg-emerald-500/20 text-emerald-400" : "bg-red-500/20 text-red-400"}`}>
+            {asset.status.toUpperCase()}
+          </span>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={() => setShowVault(!showVault)} className="text-[10px] px-2.5 py-1 rounded bg-zinc-900 border border-zinc-700 text-zinc-300">
-            {showVault ? "🙈 Hide Vault" : "👁 View Vault"}
+          <button onClick={() => setShowVaultEdit(!showVaultEdit)} className="text-[11px] px-2.5 py-1 rounded bg-zinc-900 border border-zinc-700 text-emerald-400 font-bold">
+            {showVaultEdit ? "Close Vault Editor" : "✎ Edit Vault / Reassign"}
           </button>
-          <button onClick={() => onRemove(asset.id)} className="text-xs text-red-400 hover:underline ml-1">Remove</button>
+          <button onClick={() => setShowMetricsTable(!showMetricsTable)} className="text-[11px] px-2.5 py-1 rounded bg-zinc-900 border border-zinc-700 text-purple-300 font-bold">
+            📊 Logs ({assetLogs.length})
+          </button>
+          <button onClick={() => onRemove(asset.id)} className="text-xs text-red-400 hover:underline ml-1 font-bold">🗑 Delete</button>
         </div>
       </div>
 
-      {showVault && (
-        <div className="p-3 bg-zinc-950 border border-zinc-800 rounded-lg text-[11px] font-mono text-zinc-300 space-y-1">
-          <div><b>Asset Profile:</b> {asset.profile_link ? <a href={asset.profile_link} target="_blank" className="text-blue-400 underline">{asset.profile_link}</a> : "Pending Setup"}</div>
-          <div><b>Asset ID / Handle:</b> <span className="text-purple-400">{asset.account_id}</span></div>
-          <div><b>Asset Pass:</b> <span className="text-emerald-400">{asset.account_password || "Not Provided"}</span></div>
-          <div><b>Asset Email:</b> {asset.email || "Not Provided"} {asset.email_password ? `(Pass: ${asset.email_password})` : ""}</div>
-          <div><b>Asset 2FA:</b> {asset.two_fa_code || "None"} • <b>Phone:</b> {asset.phone_number || "N/A"}</div>
+      {/* FULL ASSET CREDENTIAL & REASSIGNMENT CRUD EDITOR */}
+      {showVaultEdit && (
+        <div className="p-4 bg-zinc-950 border border-emerald-500/30 rounded-xl space-y-3 text-xs">
+          <div className="text-[10px] uppercase font-bold text-emerald-400">Full Asset Vault & Squad Reassignment Editor</div>
+          <div className="grid grid-cols-3 gap-2">
+            <div>
+              <label className="text-[10px] text-zinc-400">Reassign Squad SMM</label>
+              <select value={formState.smm_id || ""} onChange={(e) => setFormState({ ...formState, smm_id: e.target.value })} className="w-full mt-1 rounded bg-black border border-zinc-800 p-2 text-white">
+                {squadMembers.map((m: any) => <option key={m.id} value={m.id}>{m.full_name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-[10px] text-zinc-400">Platform</label>
+              <select value={formState.platform} onChange={(e) => setFormState({ ...formState, platform: e.target.value })} className="w-full mt-1 rounded bg-black border border-zinc-800 p-2 text-white uppercase">
+                {PLATFORMS.map(p => <option key={p} value={p}>{p}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-[10px] text-zinc-400">Status</label>
+              <select value={formState.status} onChange={(e) => setFormState({ ...formState, status: e.target.value })} className="w-full mt-1 rounded bg-black border border-zinc-800 p-2 text-white uppercase">
+                <option value="active">ACTIVE</option>
+                <option value="suspended">SUSPENDED</option>
+              </select>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <input type="text" placeholder="Asset ID / @Handle" value={formState.account_id || ""} onChange={(e) => setFormState({ ...formState, account_id: e.target.value })} className="rounded bg-black border border-zinc-800 p-2 text-white" />
+            <input type="text" placeholder="Asset Password" value={formState.account_password || ""} onChange={(e) => setFormState({ ...formState, account_password: e.target.value })} className="rounded bg-black border border-zinc-800 p-2 text-white" />
+            <input type="email" placeholder="Asset Email" value={formState.email || ""} onChange={(e) => setFormState({ ...formState, email: e.target.value })} className="rounded bg-black border border-zinc-800 p-2 text-white" />
+            <input type="text" placeholder="Email Password" value={formState.email_password || ""} onChange={(e) => setFormState({ ...formState, email_password: e.target.value })} className="rounded bg-black border border-zinc-800 p-2 text-white" />
+            <input type="url" placeholder="Profile Link" value={formState.profile_link || ""} onChange={(e) => setFormState({ ...formState, profile_link: e.target.value })} className="rounded bg-black border border-zinc-800 p-2 text-white" />
+            <input type="text" placeholder="2FA Code" value={formState.two_fa_code || ""} onChange={(e) => setFormState({ ...formState, two_fa_code: e.target.value })} className="rounded bg-black border border-zinc-800 p-2 text-white" />
+          </div>
         </div>
       )}
 
-      {latestMetric ? (
-        <div className="grid grid-cols-4 gap-2 bg-zinc-900/80 p-3 rounded-lg text-xs font-mono">
-          <div><span className="text-[10px] text-zinc-500 block">WEEK</span>{latestMetric.week_of}</div>
-          <div><span className="text-[10px] text-zinc-500 block">IMPR</span><span className="text-blue-400 font-bold">{latestMetric.impressions.toLocaleString()}</span></div>
-          <div><span className="text-[10px] text-zinc-500 block">ENG</span><span className="text-purple-400 font-bold">{latestMetric.engagements.toLocaleString()}</span></div>
-          <div><span className="text-[10px] text-zinc-500 block">FOLLOWERS</span><span className="text-emerald-400 font-bold">{latestMetric.total_followers.toLocaleString()}</span></div>
+      {/* WEEKLY METRICS CRUD TABLE FOR THIS ASSET */}
+      {showMetricsTable && (
+        <div className="p-3 bg-zinc-950 border border-purple-500/30 rounded-xl space-y-3">
+          <div className="text-[10px] uppercase font-bold text-purple-300">Weekly Metrics Ledger (TL Edit / Delete)</div>
+          {editingMetricRow && (
+            <div className="grid grid-cols-4 gap-2 bg-black p-3 rounded border border-emerald-500/40 text-xs">
+              <input type="number" placeholder="Impr" value={editingMetricRow.impressions} onChange={(e) => setEditingMetricRow({ ...editingMetricRow, impressions: parseInt(e.target.value) || 0 })} className="rounded bg-zinc-900 p-1.5 text-white" />
+              <input type="number" placeholder="Eng" value={editingMetricRow.engagements} onChange={(e) => setEditingMetricRow({ ...editingMetricRow, engagements: parseInt(e.target.value) || 0 })} className="rounded bg-zinc-900 p-1.5 text-white" />
+              <input type="number" placeholder="Total Fol" value={editingMetricRow.total_followers} onChange={(e) => setEditingMetricRow({ ...editingMetricRow, total_followers: parseInt(e.target.value) || 0 })} className="rounded bg-zinc-900 p-1.5 text-white" />
+              <button onClick={() => { onUpdateMetric(editingMetricRow); setEditingMetricRow(null); }} className="bg-emerald-500 text-black font-bold rounded px-2">Save</button>
+            </div>
+          )}
+          <table className="w-full text-left text-[11px] font-mono text-zinc-300">
+            <thead className="bg-zinc-900 text-zinc-400">
+              <tr>
+                <th className="p-2">Week</th>
+                <th className="p-2">Impr</th>
+                <th className="p-2">Eng</th>
+                <th className="p-2">Fol</th>
+                <th className="p-2 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-zinc-800">
+              {assetLogs.map((m: any) => (
+                <tr key={m.id}>
+                  <td className="p-2 text-white">{m.week_of}</td>
+                  <td className="p-2 text-blue-400">{m.impressions.toLocaleString()}</td>
+                  <td className="p-2 text-purple-400">{m.engagements.toLocaleString()}</td>
+                  <td className="p-2 text-emerald-400">{m.total_followers.toLocaleString()}</td>
+                  <td className="p-2 text-right space-x-2 font-sans">
+                    <button onClick={() => setEditingMetricRow({ ...m })} className="text-emerald-400 hover:underline">Edit</button>
+                    <button onClick={() => onDeleteMetric(m.id)} className="text-red-400 hover:underline">Delete</button>
+                  </td>
+                </tr>
+              ))}
+              {assetLogs.length === 0 && <tr><td colSpan={5} className="p-3 text-center text-zinc-500">No logs yet.</td></tr>}
+            </tbody>
+          </table>
         </div>
-      ) : (
-        <div className="text-xs text-zinc-500 italic">No weekly metrics logged for this Asset yet.</div>
       )}
 
+      {/* Campaign, Task, Comment Directives */}
       <div className="space-y-2 pt-1">
-        <input type="text" value={campaign} onChange={(e) => setCampaign(e.target.value)} placeholder="Assign Campaign to Asset" className="w-full rounded-lg bg-zinc-950 border border-zinc-800 p-2 text-xs text-white" />
-        <input type="text" value={task} onChange={(e) => setTask(e.target.value)} placeholder="Assign Weekly Task to Asset" className="w-full rounded-lg bg-zinc-950 border border-zinc-800 p-2 text-xs text-white" />
-        <input type="text" value={comment} onChange={(e) => setComment(e.target.value)} placeholder="Leave Comment on Asset" className="w-full rounded-lg bg-zinc-950 border border-zinc-800 p-2 text-xs text-white" />
-        <button onClick={() => onSave(asset.id, campaign, task, comment)} className="w-full py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg text-xs">
-          Save Directives & Comments
+        <input type="text" value={formState.tl_campaign || ""} onChange={(e) => setFormState({ ...formState, tl_campaign: e.target.value })} placeholder="Assign Campaign to Asset" className="w-full rounded-lg bg-zinc-950 border border-zinc-800 p-2 text-xs text-white" />
+        <input type="text" value={formState.tl_task || ""} onChange={(e) => setFormState({ ...formState, tl_task: e.target.value })} placeholder="Assign Weekly Task to Asset" className="w-full rounded-lg bg-zinc-950 border border-zinc-800 p-2 text-xs text-white" />
+        <input type="text" value={formState.tl_comment || ""} onChange={(e) => setFormState({ ...formState, tl_comment: e.target.value })} placeholder="Leave Comment on Asset" className="w-full rounded-lg bg-zinc-950 border border-zinc-800 p-2 text-xs text-white" />
+        <button onClick={() => onFullSave(formState)} className="w-full py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg text-xs">
+          Save All Asset Changes & Directives
         </button>
       </div>
     </div>
