@@ -8,78 +8,98 @@ function getAdminClient() {
   });
 }
 
+async function readFallbackLedger(adminSupabase: any): Promise<any[]> {
+  try {
+    const { data } = await adminSupabase.from("system_settings").select("motd").eq("id", 999).maybeSingle();
+    if (data?.motd) return JSON.parse(data.motd);
+  } catch {}
+  return [];
+}
+
+async function appendFallbackLedger(adminSupabase: any, entry: any) {
+  try {
+    const list = await readFallbackLedger(adminSupabase);
+    const updated = [entry, ...list].slice(0, 350);
+    await adminSupabase.from("system_settings").upsert([{ id: 999, daily_target: 0, motd: JSON.stringify(updated) }], { onConflict: "id" });
+  } catch {}
+}
+
 export async function GET() {
   try {
     const adminSupabase = getAdminClient();
-    const { data: logs, error } = await adminSupabase
-      .from("audit_logs")
-      .select("*")
-      .order("created_at", { ascending: false })
-      .limit(1500);
-
-    if (!error && logs && logs.length > 0) {
-      return NextResponse.json({ logs });
-    }
-
-    // Fallback + Auto-Seed: Build complete Archive Vault entries from profiles, social_assets, and weekly_metrics
-    const [{ data: profs }, { data: assets }, { data: metrics }] = await Promise.all([
+    const [{ data: dbLogs }, fallbackLogs, { data: profs }, { data: assets }, { data: metrics }] = await Promise.all([
+      adminSupabase.from("audit_logs").select("*").order("created_at", { ascending: false }).limit(800),
+      readFallbackLedger(adminSupabase),
       adminSupabase.from("profiles").select("*").order("created_at", { ascending: false }),
       adminSupabase.from("social_assets").select("*").order("created_at", { ascending: false }),
       adminSupabase.from("weekly_metrics").select("*").order("week_of", { ascending: false }).limit(300),
     ]);
 
-    const synthetic: any[] = [];
-    for (const p of profs || []) {
-      synthetic.push({
-        id: `emp-${p.id}`,
-        created_at: p.created_at || new Date().toISOString(),
-        actor_id: p.id,
-        actor_name: p.full_name || "System Archive",
-        actor_role: p.role || "admin",
-        action: "CREATE",
-        entity_type: "EMPLOYEE",
-        entity_id: p.id,
-        summary: `Registered ${String(p.role || "smm").toUpperCase()}: ${p.full_name} (${p.country || "Global"})`,
-        record_snapshot: p,
-      });
-    }
+    const combined: any[] = [...(fallbackLogs || []), ...(dbLogs || [])];
+    const seenIds = new Set(combined.map((x) => x.id));
+
     for (const a of assets || []) {
-      synthetic.push({
-        id: `ast-${a.id}`,
-        created_at: a.created_at || new Date().toISOString(),
-        actor_id: a.smm_id,
-        actor_name: "Asset Vault",
-        actor_role: "smm",
-        action: "CREATE",
-        entity_type: "ASSET",
-        entity_id: a.id,
-        summary: `Vaulted Asset: [${(a.platform || "").toUpperCase()}] ${a.account_id} (${a.country_language || "Global"} • ${a.language || "English"})`,
-        record_snapshot: a,
-      });
+      const owner = (profs || []).find((p: any) => p.id === a.smm_id);
+      const isSusp = a.status === "suspended";
+      const stateId = `state-${a.id}-${a.status}`;
+      if (!seenIds.has(stateId)) {
+        combined.push({
+          id: stateId,
+          created_at: a.updated_at || a.created_at || new Date().toISOString(),
+          actor_id: a.smm_id,
+          actor_name: owner?.full_name || "Asset Handler",
+          actor_role: "smm",
+          action: isSusp ? "SUSPENDED" : "ACTIVE",
+          entity_type: "ASSET",
+          entity_id: a.id,
+          summary: `${isSusp ? "⚠ Asset Suspended" : "● Asset Active"}: [${(a.platform || "").toUpperCase()}] ${a.account_id} (${a.country_language || "Global"} • ${a.language || "English"})`,
+          record_snapshot: a,
+        });
+        seenIds.add(stateId);
+      }
     }
+
+    for (const p of profs || []) {
+      const empId = `emp-${p.id}-${p.is_locked ? "locked" : "open"}`;
+      if (!seenIds.has(empId)) {
+        combined.push({
+          id: empId,
+          created_at: p.created_at || new Date().toISOString(),
+          actor_id: p.id,
+          actor_name: p.full_name || "System",
+          actor_role: p.role || "smm",
+          action: p.is_locked ? "LOCKED" : "CREATE",
+          entity_type: "EMPLOYEE",
+          entity_id: p.id,
+          summary: `${String(p.role || "smm").toUpperCase()}: ${p.full_name} (${p.country || "Global"}) ${p.is_locked ? "🔒 [LOCKED]" : ""}`,
+          record_snapshot: p,
+        });
+        seenIds.add(empId);
+      }
+    }
+
     for (const m of metrics || []) {
-      synthetic.push({
-        id: `met-${m.id}`,
-        created_at: m.created_at || `${m.week_of}T12:00:00Z`,
-        actor_id: m.asset_id,
-        actor_name: "Weekly Ledger",
-        actor_role: "smm",
-        action: "UPSERT",
-        entity_type: "METRIC",
-        entity_id: m.id,
-        summary: `Weekly Metric (${m.week_of}): ${(m.impressions || 0).toLocaleString()} Impr, ${(m.engagements || 0).toLocaleString()} Eng`,
-        record_snapshot: m,
-      });
+      const metId = `met-${m.id}`;
+      if (!seenIds.has(metId)) {
+        const asset = (assets || []).find((a: any) => a.id === m.asset_id);
+        combined.push({
+          id: metId,
+          created_at: m.created_at || `${m.week_of}T12:00:00.000Z`,
+          actor_id: m.asset_id,
+          actor_name: asset ? `[${(asset.platform || "").toUpperCase()}] ${asset.account_id}` : "Weekly Ledger",
+          actor_role: "smm",
+          action: "UPSERT",
+          entity_type: "METRIC",
+          entity_id: m.id,
+          summary: `📊 Weekly Report (${m.week_of}) for ${asset?.account_id || "Asset"}: ${(m.impressions || 0).toLocaleString()} Impr, ${(m.engagements || 0).toLocaleString()} Eng`,
+          record_snapshot: m,
+        });
+        seenIds.add(metId);
+      }
     }
 
-    // Attempt to seed into audit_logs if table exists
-    if (!error && synthetic.length > 0) {
-      await adminSupabase.from("audit_logs").insert(
-        synthetic.map(({ id, ...rest }) => rest)
-      );
-    }
-
-    return NextResponse.json({ logs: synthetic });
+    combined.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    return NextResponse.json({ logs: combined });
   } catch (err: any) {
     return NextResponse.json({ logs: [], error: err.message }, { status: 200 });
   }
@@ -94,22 +114,23 @@ export async function POST(request: Request) {
     if (!actor) return NextResponse.json({ error: "Unauthorized actor." }, { status: 403 });
 
     const logAudit = async (act: string, ent: string, entId: string, summary: string, snapshot: any) => {
+      const entry = {
+        id: `evt-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        created_at: new Date().toISOString(),
+        actor_id: actor.id,
+        actor_name: actor.full_name,
+        actor_role: actor.role,
+        action: act,
+        entity_type: ent,
+        entity_id: entId,
+        summary,
+        record_snapshot: snapshot || {},
+      };
+      await appendFallbackLedger(adminSupabase, entry);
       try {
-        await adminSupabase.from("audit_logs").insert([
-          {
-            actor_id: actor.id,
-            actor_name: actor.full_name,
-            actor_role: actor.role,
-            action: act,
-            entity_type: ent,
-            entity_id: entId,
-            summary,
-            record_snapshot: snapshot || {},
-          },
-        ]);
-      } catch {
-        // Ignore if audit_logs table is not yet migrated
-      }
+        const { id, ...dbRow } = entry;
+        await adminSupabase.from("audit_logs").insert([dbRow]);
+      } catch {}
     };
 
     if (entity === "campaign" && action === "dispatch") {
@@ -142,14 +163,7 @@ export async function POST(request: Request) {
           })
           .in("id", matchingIds);
       }
-
-      await logAudit(
-        "CREATE",
-        "ASSET",
-        "CAMPAIGN",
-        `Dispatched Campaign "${topic}" (${(platforms || []).join(", ").toUpperCase()}) to ${matchingIds.length} Assets`,
-        payload
-      );
+      await logAudit("CAMPAIGN", "ASSET", "CAMPAIGN", `🎯 Dispatched Campaign "${topic}" to ${matchingIds.length} Assets`, payload);
       return NextResponse.json({ success: true, count: matchingIds.length });
     }
 
@@ -158,7 +172,7 @@ export async function POST(request: Request) {
       if (!snapshot) return NextResponse.json({ error: "Snapshot not found" }, { status: 404 });
       const tbl = entityType === "ASSET" ? "social_assets" : entityType === "EMPLOYEE" ? "profiles" : "weekly_metrics";
       await adminSupabase.from(tbl).upsert([snapshot]);
-      await logAudit("RESTORE", entityType || "ASSET", snapshot.id, `Restored ${entityType} from Archive Vault`, snapshot);
+      await logAudit("RESTORE", entityType || "ASSET", snapshot.id, `♻ Restored ${entityType} from Archives`, snapshot);
       return NextResponse.json({ success: true });
     }
 
@@ -225,7 +239,6 @@ export async function POST(request: Request) {
 
         await adminSupabase.from("profiles").update(upd).eq("id", targetId);
 
-        // When Admin edits a Team Leader's assigned SMM squad members
         if (actor.role === "admin" && Array.isArray(assignedSmmIds)) {
           const { data: allSmms } = await adminSupabase.from("profiles").select("*").eq("role", "smm");
           for (const smm of allSmms || []) {
@@ -245,7 +258,6 @@ export async function POST(request: Request) {
           }
         }
 
-        // When Admin or TL edits an SMM's assigned Social Media Assets
         if ((actor.role === "admin" || actor.role === "team_leader") && Array.isArray(assignedAssetIds)) {
           if (assignedAssetIds.length > 0) {
             await adminSupabase.from("social_assets").update({ smm_id: targetId }).in("id", assignedAssetIds);
@@ -260,7 +272,9 @@ export async function POST(request: Request) {
         if (newPassword && newPassword.trim().length >= 6) {
           await adminSupabase.auth.admin.updateUserById(targetId, { password: newPassword.trim() });
         }
-        await logAudit("UPDATE", "EMPLOYEE", targetId, `Updated profile: ${full_name || before?.full_name}`, { before, after: upd });
+        const actType = is_locked !== undefined ? (is_locked ? "LOCKED" : "UNLOCKED") : "UPDATE";
+        const desc = is_locked !== undefined ? `${is_locked ? "🔒 Locked" : "🔓 Unlocked"} SMM: ${before?.full_name}` : `✎ Updated profile: ${full_name || before?.full_name}`;
+        await logAudit(actType, "EMPLOYEE", targetId, desc, { before, after: upd });
         return NextResponse.json({ success: true });
       }
 
@@ -269,7 +283,7 @@ export async function POST(request: Request) {
         let q = adminSupabase.from("profiles").update({ is_locked }).eq("role", "smm");
         if (Array.isArray(smmIds) && smmIds.length > 0) q = q.in("id", smmIds);
         await q;
-        await logAudit("BATCH_LOCK", "EMPLOYEE", "SQUAD", `${is_locked ? "Locked" : "Unlocked"} SMM metric inputs`, payload);
+        await logAudit(is_locked ? "LOCKED" : "UNLOCKED", "EMPLOYEE", "SQUAD", `${is_locked ? "🔒 Locked" : "🔓 Unlocked"} SMM metric inputs`, payload);
         return NextResponse.json({ success: true });
       }
 
@@ -278,7 +292,7 @@ export async function POST(request: Request) {
         const { data: oldProf } = await adminSupabase.from("profiles").select("*").eq("id", targetId).single();
         await adminSupabase.from("profiles").delete().eq("id", targetId);
         await adminSupabase.auth.admin.deleteUser(targetId);
-        await logAudit("DELETE", "EMPLOYEE", targetId, `Deleted employee: ${oldProf?.full_name || targetId}`, oldProf);
+        await logAudit("DELETE", "EMPLOYEE", targetId, `🗑 Deleted employee: ${oldProf?.full_name || targetId}`, oldProf);
         return NextResponse.json({ success: true });
       }
     }
@@ -291,14 +305,13 @@ export async function POST(request: Request) {
           .insert([{ ...dbPayload, ...(language ? { language } : {}) }])
           .select()
           .single();
-        // Fallback if 'language' column isn't added in DB yet
         if (error && error.message?.includes("language")) {
           const retry = await adminSupabase.from("social_assets").insert([dbPayload]).select().single();
           created = retry.data;
           error = retry.error;
         }
         if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-        await logAudit("CREATE", "ASSET", created.id, `Created [${created.platform.toUpperCase()}] ${created.account_id}`, created);
+        await logAudit("CREATE", "ASSET", created.id, `Created Asset [${created.platform.toUpperCase()}] ${created.account_id}`, created);
         return NextResponse.json({ success: true, asset: created });
       }
       if (action === "bulk_create") {
@@ -310,7 +323,7 @@ export async function POST(request: Request) {
           error = retry.error;
         }
         if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-        await logAudit("BULK_CREATE", "ASSET", "BULK", `Bulk registered ${ins?.length || 0} Assets`, { count: ins?.length });
+        await logAudit("CREATE", "ASSET", "BULK", `⚡ Bulk registered ${ins?.length || 0} Assets`, { count: ins?.length });
         return NextResponse.json({ success: true, count: ins?.length || 0 });
       }
       if (action === "update") {
@@ -324,14 +337,21 @@ export async function POST(request: Request) {
           error = retry.error;
         }
         if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-        await logAudit("UPDATE", "ASSET", id, `Updated Asset [${after.platform.toUpperCase()}] ${after.account_id}`, { before, after });
+
+        const isStatusChange = fields.status && fields.status !== before?.status;
+        const actTag = isStatusChange ? (fields.status === "suspended" ? "SUSPENDED" : "ACTIVE") : "UPDATE";
+        const msg = isStatusChange
+          ? `${fields.status === "suspended" ? "⚠ Suspended" : "● Activated"} Asset [${after.platform.toUpperCase()}] ${after.account_id} by ${actor.full_name}`
+          : `✎ Updated Asset [${after.platform.toUpperCase()}] ${after.account_id} by ${actor.full_name}`;
+
+        await logAudit(actTag, "ASSET", id, msg, { before, after });
         return NextResponse.json({ success: true });
       }
       if (action === "delete") {
         const { id } = payload;
         const { data: oldA } = await adminSupabase.from("social_assets").select("*").eq("id", id).single();
         await adminSupabase.from("social_assets").delete().eq("id", id);
-        await logAudit("DELETE", "ASSET", id, `Deleted Asset [${oldA?.platform?.toUpperCase()}] ${oldA?.account_id}`, oldA);
+        await logAudit("DELETE", "ASSET", id, `🗑 Deleted Asset [${oldA?.platform?.toUpperCase()}] ${oldA?.account_id}`, oldA);
         return NextResponse.json({ success: true });
       }
     }
@@ -341,14 +361,14 @@ export async function POST(request: Request) {
       if (action === "upsert") {
         const { data: saved, error } = await adminSupabase.from("weekly_metrics").upsert([payload], { onConflict: "asset_id,week_of" }).select().single();
         if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-        await logAudit("UPSERT", "METRIC", saved.id, `Logged weekly metrics (${payload.week_of})`, saved);
+        await logAudit("UPSERT", "METRIC", saved.id, `📊 Logged weekly metrics (${payload.week_of})`, saved);
         return NextResponse.json({ success: true });
       }
       if (action === "delete") {
         const { id } = payload;
         const { data: oldM } = await adminSupabase.from("weekly_metrics").select("*").eq("id", id).single();
         await adminSupabase.from("weekly_metrics").delete().eq("id", id);
-        await logAudit("DELETE", "METRIC", id, `Deleted weekly metric (${oldM?.week_of})`, oldM);
+        await logAudit("DELETE", "METRIC", id, `🗑 Deleted weekly metric (${oldM?.week_of})`, oldM);
         return NextResponse.json({ success: true });
       }
     }
