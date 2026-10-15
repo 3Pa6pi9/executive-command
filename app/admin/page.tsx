@@ -6,7 +6,6 @@ import Link from "next/link";
 import {
   PLATFORMS,
   ALL_COUNTRIES,
-  ASSET_LANGUAGES,
   TimeHorizon,
   normalizeAuthUsername,
   fetchAllRows,
@@ -15,9 +14,12 @@ import {
 } from "@/lib/constants";
 import {
   AssetGrowthModal,
+  UniversalAssetEditModal,
   FancyMultiSelect,
   FancyEntityMultiSelect,
   CampaignDispatchWizard,
+  ExecutiveAnalyticsGraphs,
+  ForensicArchiveVault,
 } from "@/components/EnterpriseUI";
 
 export default function AdminCommandCenter() {
@@ -43,7 +45,7 @@ export default function AdminCommandCenter() {
   const [searchQuery, setSearchQuery] = useState("");
   const [csvHorizon, setCsvHorizon] = useState<TimeHorizon>("weekly");
 
-  // Modals
+  // Modals & Drawers
   const [inspectingAsset, setInspectingAsset] = useState<any>(null);
   const [editingAsset, setEditingAsset] = useState<any>(null);
   const [editingEmployee, setEditingEmployee] = useState<any>(null);
@@ -53,6 +55,12 @@ export default function AdminCommandCenter() {
   const [empAssignedSmmIds, setEmpAssignedSmmIds] = useState<string[]>([]);
   const [empAssignedAssetIds, setEmpAssignedAssetIds] = useState<string[]>([]);
   const [empNewPass, setEmpNewPass] = useState("");
+
+  // Admin Settings Drawer State
+  const [showAdminSettings, setShowAdminSettings] = useState(false);
+  const [adminDisplayName, setAdminDisplayName] = useState("");
+  const [adminCountries, setAdminCountries] = useState<string[]>([]);
+  const [adminNewPass, setAdminNewPass] = useState("");
 
   // Provision Modal
   const [showProvisionModal, setShowProvisionModal] = useState(false);
@@ -120,6 +128,13 @@ export default function AdminCommandCenter() {
       return false;
     }
     setAdminProfile(prof);
+    setAdminDisplayName(prof.full_name || "Master Admin");
+    setAdminCountries(
+      (prof.country || "Kenya")
+        .split(",")
+        .map((c: string) => c.trim())
+        .filter(Boolean)
+    );
     setIsCheckingAuth(false);
     await loadAllEnterpriseData();
     return true;
@@ -140,6 +155,66 @@ export default function AdminCommandCenter() {
       return setAuthMsg("Access Denied: Admin clearance required.");
     }
     setAdminProfile(prof);
+    setAdminDisplayName(prof.full_name || "Master Admin");
+    setAdminCountries(
+      (prof.country || "Kenya")
+        .split(",")
+        .map((c: string) => c.trim())
+        .filter(Boolean)
+    );
+    await loadAllEnterpriseData();
+  };
+
+  const handleToggleSmmLock = async (smm: any) => {
+    await fetch("/api/crud", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        actorId: adminProfile.id,
+        entity: "profile",
+        action: "update",
+        payload: { targetId: smm.id, is_locked: !smm.is_locked },
+      }),
+    });
+    setStatusMsg(`${smm.full_name} is now ${!smm.is_locked ? "LOCKED 🔒" : "OPEN 🔓"}`);
+    await loadAllEnterpriseData();
+  };
+
+  const handleGlobalBatchLock = async (lockState: boolean) => {
+    await fetch("/api/crud", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        actorId: adminProfile.id,
+        entity: "profile",
+        action: "batch_lock",
+        payload: { is_locked: lockState },
+      }),
+    });
+    setStatusMsg(lockState ? "🔒 All SMMs Globally Locked!" : "🔓 All SMMs Globally Unlocked!");
+    await loadAllEnterpriseData();
+  };
+
+  const handleSaveAdminOwnSettings = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await fetch("/api/crud", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        actorId: adminProfile.id,
+        entity: "profile",
+        action: "update",
+        payload: {
+          targetId: adminProfile.id,
+          full_name: adminDisplayName,
+          country: adminCountries.join(", "),
+          newPassword: adminNewPass,
+        },
+      }),
+    });
+    setAdminNewPass("");
+    setShowAdminSettings(false);
+    setStatusMsg("✓ Master Admin Settings & Security Updated Live!");
     await loadAllEnterpriseData();
   };
 
@@ -153,7 +228,6 @@ export default function AdminCommandCenter() {
     );
     setEmpPlatforms(emp.platforms?.length > 0 ? emp.platforms : ["twitter"]);
     setEmpTlIds(emp.team_leader_ids?.length > 0 ? emp.team_leader_ids : emp.team_leader_id ? [emp.team_leader_id] : []);
-    // If editing a Team Leader, load all SMMs currently under them
     const smmsUnderTl = profiles
       .filter(
         (p) =>
@@ -162,7 +236,6 @@ export default function AdminCommandCenter() {
       )
       .map((s) => s.id);
     setEmpAssignedSmmIds(smmsUnderTl);
-    // If editing an SMM, load all Assets currently under them
     const assetsUnderSmm = assets.filter((a) => a.smm_id === emp.id).map((a) => a.id);
     setEmpAssignedAssetIds(assetsUnderSmm);
     setEmpNewPass("");
@@ -258,9 +331,7 @@ export default function AdminCommandCenter() {
     await loadAllEnterpriseData();
   };
 
-  const handleSaveAsset = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editingAsset) return;
+  const handleSaveAsset = async (updatedAsset: any) => {
     await fetch("/api/crud", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -268,11 +339,11 @@ export default function AdminCommandCenter() {
         actorId: adminProfile.id,
         entity: "asset",
         action: "update",
-        payload: editingAsset,
+        payload: updatedAsset,
       }),
     });
     setEditingAsset(null);
-    setStatusMsg("✓ Asset Updated Live!");
+    setStatusMsg("✓ All 15 Asset Fields Updated Live!");
     await loadAllEnterpriseData();
   };
 
@@ -361,22 +432,13 @@ export default function AdminCommandCenter() {
   const filteredAssets =
     projectFilter === "All" ? assets : assets.filter((a) => (a.project_name || "General Campaign") === projectFilter);
 
-  const activeTl = teamLeaders.find((t) => t.id === selectedTlId);
-  const displayedSmms = selectedTlId
-    ? allSmms.filter(
-        (s) => s.team_leader_id === selectedTlId || (s.team_leader_ids && s.team_leader_ids.includes(selectedTlId))
-      )
-    : [];
-  const activeSmm = allSmms.find((s) => s.id === selectedSmmId);
-  const displayedSmmAssets = selectedSmmId ? filteredAssets.filter((a) => a.smm_id === selectedSmmId) : [];
-
   const q = searchQuery.toLowerCase().trim();
   const globalAchievements = computeAchievements(filteredAssets, metrics);
 
   return (
     <div className="min-h-screen bg-black text-zinc-100 p-3 sm:p-6 md:p-8 pb-28 md:pb-12 font-sans">
       <div className="max-w-7xl mx-auto space-y-5">
-        {/* Top Executive Bar with Front-and-Center Give Campaign Button */}
+        {/* Top Executive Bar */}
         <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center border-b border-zinc-800 pb-5 gap-4">
           <div>
             <div className="flex items-center gap-2">
@@ -393,22 +455,28 @@ export default function AdminCommandCenter() {
             </div>
             <h1 className="text-xl sm:text-3xl font-bold text-white mt-1.5">Global Admin Command Center</h1>
             <p className="text-xs text-zinc-400">
-              TLs: {teamLeaders.length} • SMMs: {allSmms.length} • Assets: {filteredAssets.length} • Archive Logs: {auditLogs.length}
+              Admin: <b className="text-white">{adminProfile.full_name}</b> • TLs: {teamLeaders.length} • SMMs: {allSmms.length} • Assets: {filteredAssets.length}
             </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
             <button
               onClick={() => setActiveTab("campaign")}
-              className="px-4 py-2.5 bg-gradient-to-r from-purple-600 to-emerald-500 text-white font-bold rounded-xl text-xs shadow-lg active:scale-95 transition-all"
+              className="px-4 py-2.5 bg-gradient-to-r from-purple-600 to-emerald-500 hover:from-purple-500 hover:to-emerald-400 text-white font-bold rounded-xl text-xs shadow-[0_0_20px_rgba(16,185,129,0.3)] active:scale-95 transition-all"
             >
               🎯 Give Campaign
             </button>
             <button
               onClick={() => setShowProvisionModal(true)}
-              className="px-3.5 py-2.5 bg-emerald-500 text-black font-bold rounded-xl text-xs"
+              className="px-3.5 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-black font-bold rounded-xl text-xs transition-all"
             >
               + Provision User
+            </button>
+            <button
+              onClick={() => setShowAdminSettings(true)}
+              className="px-3.5 py-2.5 bg-zinc-900 border border-emerald-500/40 text-emerald-300 hover:bg-zinc-800 font-bold rounded-xl text-xs transition-all"
+            >
+              ⚙ Admin Settings
             </button>
             <select
               value={projectFilter}
@@ -445,20 +513,11 @@ export default function AdminCommandCenter() {
             >
               ⬇ CSV
             </button>
-            <button
-              onClick={async () => {
-                await supabase.auth.signOut();
-                setAdminProfile(null);
-              }}
-              className="px-3 py-2 bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-red-400 rounded-xl text-xs"
-            >
-              Sign Out
-            </button>
           </div>
         </div>
 
         {statusMsg && (
-          <div className="p-3 rounded-xl bg-emerald-500/15 border border-emerald-500/40 text-emerald-300 text-xs text-center font-bold">
+          <div className="p-3 rounded-xl bg-emerald-500/15 border border-emerald-500/40 text-emerald-300 text-xs text-center font-bold animate-pulse">
             {statusMsg}
           </div>
         )}
@@ -466,25 +525,25 @@ export default function AdminCommandCenter() {
         {/* Desktop Navigation Tabs */}
         <div className="hidden md:flex flex-wrap justify-between items-center gap-2 bg-zinc-950 border border-zinc-800 p-3 rounded-2xl">
           <div className="flex flex-wrap gap-2">
-            <button onClick={() => setActiveTab("hierarchy")} className={`px-3.5 py-2 rounded-xl text-xs font-bold ${activeTab === "hierarchy" ? "bg-emerald-500 text-black" : "bg-zinc-900 text-zinc-400"}`}>
+            <button onClick={() => setActiveTab("hierarchy")} className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all ${activeTab === "hierarchy" ? "bg-emerald-500 text-black shadow-md" : "bg-zinc-900 text-zinc-400 hover:text-white"}`}>
               🏛 Command Hierarchy
             </button>
-            <button onClick={() => setActiveTab("campaign")} className={`px-3.5 py-2 rounded-xl text-xs font-bold ${activeTab === "campaign" ? "bg-purple-600 text-white" : "bg-zinc-900 text-purple-300 border border-purple-500/30"}`}>
+            <button onClick={() => setActiveTab("campaign")} className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all ${activeTab === "campaign" ? "bg-purple-600 text-white shadow-md" : "bg-zinc-900 text-purple-300 border border-purple-500/30"}`}>
               🎯 Give Campaign
             </button>
-            <button onClick={() => setActiveTab("directory")} className={`px-3.5 py-2 rounded-xl text-xs font-bold ${activeTab === "directory" ? "bg-blue-600 text-white" : "bg-zinc-900 text-zinc-400"}`}>
+            <button onClick={() => setActiveTab("directory")} className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all ${activeTab === "directory" ? "bg-blue-600 text-white shadow-md" : "bg-zinc-900 text-zinc-400 hover:text-white"}`}>
               👥 TLs & SMMs ({profiles.length})
             </button>
-            <button onClick={() => setActiveTab("assets")} className={`px-3.5 py-2 rounded-xl text-xs font-bold ${activeTab === "assets" ? "bg-purple-600 text-white" : "bg-zinc-900 text-zinc-400"}`}>
+            <button onClick={() => setActiveTab("assets")} className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all ${activeTab === "assets" ? "bg-purple-600 text-white shadow-md" : "bg-zinc-900 text-zinc-400 hover:text-white"}`}>
               🗂 All Assets ({filteredAssets.length})
             </button>
-            <button onClick={() => setActiveTab("archive")} className={`px-3.5 py-2 rounded-xl text-xs font-bold ${activeTab === "archive" ? "bg-amber-500 text-black" : "bg-zinc-900 text-amber-300"}`}>
+            <button onClick={() => setActiveTab("graphs")} className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all ${activeTab === "graphs" ? "bg-cyan-400 text-black shadow-md" : "bg-zinc-900 text-cyan-300"}`}>
+              📈 Summary Graphs
+            </button>
+            <button onClick={() => setActiveTab("archive")} className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all ${activeTab === "archive" ? "bg-amber-500 text-black shadow-md" : "bg-zinc-900 text-amber-300"}`}>
               🗄 Archive Vault ({auditLogs.length})
             </button>
-            <button onClick={() => setActiveTab("graphs")} className={`px-3.5 py-2 rounded-xl text-xs font-bold ${activeTab === "graphs" ? "bg-cyan-400 text-black" : "bg-zinc-900 text-cyan-300"}`}>
-              📈 Graphs
-            </button>
-            <button onClick={() => setActiveTab("achievements")} className={`px-3.5 py-2 rounded-xl text-xs font-bold ${activeTab === "achievements" ? "bg-yellow-400 text-black" : "bg-zinc-900 text-yellow-300"}`}>
+            <button onClick={() => setActiveTab("achievements")} className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all ${activeTab === "achievements" ? "bg-yellow-400 text-black shadow-md" : "bg-zinc-900 text-yellow-300"}`}>
               🏆 Achievements
             </button>
           </div>
@@ -493,14 +552,36 @@ export default function AdminCommandCenter() {
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search TLs, SMMs, Assets..."
-            className="rounded-xl bg-black border border-zinc-800 px-3 py-1.5 text-xs text-white outline-none"
+            className="rounded-xl bg-black border border-zinc-800 px-3 py-1.5 text-xs text-white outline-none focus:border-emerald-500"
           />
         </div>
 
-        {/* TAB 1: COMMAND HIERARCHY */}
+        {/* TAB 1: INLINE ACCORDION COMMAND HIERARCHY (UNFOLDS RIGHT UNDERNEATH EACH TL CARD — ZERO SCROLLING TO BOTTOM!) */}
         {activeTab === "hierarchy" && (
-          <div className="space-y-5">
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="space-y-4">
+            <div className="flex flex-wrap justify-between items-center gap-2">
+              <p className="text-xs text-zinc-400">
+                Tap any <b className="text-emerald-400">Team Leader</b> to unfold their SMM Squad right inside the card. Tap any <b className="text-blue-400">SMM</b> to unfold their Assets inline.
+              </p>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleGlobalBatchLock(true)}
+                  className="px-3 py-1.5 rounded-xl bg-red-500/15 hover:bg-red-500 hover:text-black border border-red-500/30 text-red-400 text-xs font-bold transition-all"
+                >
+                  🔒 Lock All SMMs
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleGlobalBatchLock(false)}
+                  className="px-3 py-1.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500 hover:text-black border border-emerald-500/30 text-emerald-400 text-xs font-bold transition-all"
+                >
+                  🔓 Unlock All SMMs
+                </button>
+              </div>
+            </div>
+
+            <div className="space-y-3">
               {teamLeaders
                 .filter((tl) => !q || (tl.full_name || "").toLowerCase().includes(q))
                 .map((tl) => {
@@ -513,141 +594,221 @@ export default function AdminCommandCenter() {
                   );
                   const tlLogs = metrics.filter((m) => tlAssets.some((a) => a.id === m.asset_id));
                   const impr = tlLogs.reduce((sum, x) => sum + (x.impressions || 0), 0);
+                  const eng = tlLogs.reduce((sum, x) => sum + (x.engagements || 0), 0);
 
                   return (
                     <div
                       key={tl.id}
-                      onClick={() => {
-                        setSelectedTlId(isSelected ? null : tl.id);
-                        setSelectedSmmId(null);
-                      }}
-                      className={`cursor-pointer rounded-2xl p-5 border transition-all ${
+                      className={`rounded-3xl border transition-all duration-500 ${
                         isSelected
-                          ? "bg-emerald-950/30 border-emerald-400 shadow-lg"
-                          : "bg-zinc-950 border-zinc-800 hover:border-emerald-500/50"
+                          ? "bg-gradient-to-b from-emerald-950/30 via-zinc-950 to-black border-emerald-500/70 shadow-[0_10px_40px_-10px_rgba(16,185,129,0.3)]"
+                          : "bg-zinc-950 border-zinc-800 hover:border-emerald-500/40"
                       }`}
                     >
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <h3 className="font-bold text-lg text-white">{tl.full_name}</h3>
-                          <p className="text-xs text-zinc-400">🌍 {tl.country}</p>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            openEditEmployee(tl);
-                          }}
-                          className="px-2.5 py-1 rounded-lg bg-zinc-900 border border-zinc-700 text-emerald-300 text-[11px] font-bold"
-                        >
-                          ✎ Edit TL
-                        </button>
-                      </div>
-                      <div className="mt-3 pt-3 border-t border-zinc-900 flex justify-between text-xs font-mono">
-                        <span className="text-blue-300">{tlSmms.length} SMMs • {tlAssets.length} Assets</span>
-                        <span className="text-emerald-400 font-bold">{impr.toLocaleString()} Impr</span>
-                      </div>
-                    </div>
-                  );
-                })}
-            </div>
-
-            {activeTl && (
-              <div className="bg-zinc-950 border border-blue-500/40 rounded-3xl p-5 sm:p-6 space-y-5">
-                <div className="flex justify-between items-center border-b border-zinc-800 pb-3">
-                  <h2 className="text-xl font-bold text-white">
-                    Commander {activeTl.full_name}&apos;s Squad ({displayedSmms.length} SMMs)
-                  </h2>
-                  <button
-                    onClick={() => openEditEmployee(activeTl)}
-                    className="px-3 py-1.5 rounded-xl bg-blue-600 text-white text-xs font-bold"
-                  >
-                    ✎ Edit {activeTl.full_name}&apos;s Countries & SMM Squad
-                  </button>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  {displayedSmms.map((smm) => {
-                    const smmAssets = filteredAssets.filter((a) => a.smm_id === smm.id);
-                    const isSmmSelected = selectedSmmId === smm.id;
-                    return (
+                      {/* Team Leader Header Bar */}
                       <div
-                        key={smm.id}
-                        onClick={() => setSelectedSmmId(isSmmSelected ? null : smm.id)}
-                        className={`cursor-pointer rounded-2xl p-4 border ${
-                          isSmmSelected ? "bg-blue-950/30 border-blue-400" : "bg-black border-zinc-800"
-                        }`}
+                        onClick={() => {
+                          setSelectedTlId(isSelected ? null : tl.id);
+                          setSelectedSmmId(null);
+                        }}
+                        className="cursor-pointer p-4 sm:p-5 flex flex-wrap justify-between items-center gap-4"
                       >
-                        <div className="flex justify-between items-start">
+                        <div className="flex items-center gap-3">
+                          <span
+                            className={`h-3 w-3 rounded-full transition-all duration-300 ${
+                              isSelected ? "bg-emerald-400 shadow-[0_0_12px_#34d399]" : "bg-zinc-700"
+                            }`}
+                          />
                           <div>
-                            <h3 className="font-bold text-white">{smm.full_name}</h3>
-                            <p className="text-xs text-zinc-400">{smm.country}</p>
-                            <p className="text-[10px] text-purple-300 mt-0.5">
-                              SM: {(smm.platforms || ["twitter"]).join(", ").toUpperCase()}
-                            </p>
+                            <div className="flex items-center gap-2">
+                              <h3 className="font-bold text-lg sm:text-xl text-white">Commander {tl.full_name}</h3>
+                              <span className="text-[10px] px-2.5 py-0.5 rounded-full font-bold bg-blue-500/15 text-blue-300 border border-blue-500/30">
+                                {tlSmms.length} SMMs • {tlAssets.length} Assets
+                              </span>
+                            </div>
+                            <p className="text-xs text-zinc-400 mt-0.5">🌍 Regions: {tl.country}</p>
+                          </div>
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-3">
+                          <div className="text-right font-mono text-xs hidden sm:block">
+                            <div className="text-blue-400 font-bold">{impr.toLocaleString()} Impr</div>
+                            <div className="text-purple-400">{eng.toLocaleString()} Eng</div>
                           </div>
                           <button
                             type="button"
                             onClick={(e) => {
                               e.stopPropagation();
-                              openEditEmployee(smm);
+                              openEditEmployee(tl);
                             }}
-                            className="px-2.5 py-1 rounded-lg bg-zinc-900 border border-zinc-700 text-blue-300 text-[11px] font-bold"
+                            className="px-3 py-1.5 rounded-xl bg-zinc-900 hover:bg-emerald-500 hover:text-black border border-zinc-700 text-emerald-300 text-xs font-bold transition-all"
                           >
-                            ✎ Edit SMM
+                            ✎ Edit TL & Squad
                           </button>
-                        </div>
-                        <div className="mt-3 text-xs font-mono text-purple-300">
-                          {smmAssets.length} Managed Assets (Tap to unfold)
+                          <span
+                            className={`text-sm font-bold transition-transform duration-300 ${
+                              isSelected ? "rotate-180 text-emerald-400" : "text-zinc-500"
+                            }`}
+                          >
+                            ▼
+                          </span>
                         </div>
                       </div>
-                    );
-                  })}
-                </div>
 
-                {activeSmm && (
-                  <div className="pt-4 border-t border-zinc-800 space-y-3">
-                    <h3 className="text-base font-bold text-white">
-                      Assets Managed by {activeSmm.full_name} (Tap any card for Full Details & Growth)
-                    </h3>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                      {displayedSmmAssets.map((asset) => {
-                        const isSuspended = asset.status === "suspended";
-                        return (
-                          <div
-                            key={asset.id}
-                            onClick={() => setInspectingAsset(asset)}
-                            className="cursor-pointer bg-black border border-zinc-800 hover:border-purple-500 rounded-2xl p-4 space-y-2 relative"
-                          >
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleSetAssetStatus(asset, isSuspended ? "active" : "suspended");
-                              }}
-                              className={`absolute top-3 right-3 px-2 py-0.5 rounded-full border text-[10px] font-bold ${
-                                isSuspended
-                                  ? "bg-red-500/20 border-red-500/40 text-red-300"
-                                  : "bg-emerald-500/20 border-emerald-500/40 text-emerald-300"
-                              }`}
-                            >
-                              {isSuspended ? "⚠ SUSP" : "● ACTV"} ⇄
-                            </button>
-                            <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-purple-500/20 text-purple-300">
-                              {asset.platform}
-                            </span>
-                            <h4 className="font-bold text-white truncate pr-20">{asset.account_id}</h4>
-                            <p className="text-[11px] text-zinc-400">
-                              🌍 {asset.country_language} • 🗣 {asset.language || "English"}
-                            </p>
+                      {/* INLINE UNFOLDING SMM SQUAD DRAWER RIGHT INSIDE THIS TL CARD */}
+                      <div
+                        className={`grid transition-all duration-500 ease-in-out ${
+                          isSelected ? "grid-rows-[1fr] opacity-100 border-t border-zinc-800/80" : "grid-rows-[0fr] opacity-0 pointer-events-none"
+                        }`}
+                      >
+                        <div className="overflow-hidden">
+                          <div className="p-4 sm:p-5 space-y-4 bg-black/50 rounded-b-3xl">
+                            <div className="flex flex-wrap justify-between items-center gap-2">
+                              <span className="text-xs font-bold uppercase text-blue-400">
+                                👥 {tl.full_name}&apos;s SMM Squad ({tlSmms.length} Handlers) — Tap any SMM to unfold their Assets inline
+                              </span>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                              {tlSmms.map((smm) => {
+                                const smmAssets = filteredAssets.filter((a) => a.smm_id === smm.id);
+                                const smmLogs = metrics.filter((m) => smmAssets.some((a) => a.id === m.asset_id));
+                                const sImpr = smmLogs.reduce((s, x) => s + Number(x.impressions || 0), 0);
+                                const isSmmOpen = selectedSmmId === smm.id;
+
+                                return (
+                                  <div
+                                    key={smm.id}
+                                    className={`rounded-2xl border transition-all duration-300 ${
+                                      isSmmOpen
+                                        ? "bg-blue-950/20 border-blue-400 shadow-lg md:col-span-2"
+                                        : "bg-zinc-950 border-zinc-800 hover:border-blue-500/50"
+                                    }`}
+                                  >
+                                    <div
+                                      onClick={() => setSelectedSmmId(isSmmOpen ? null : smm.id)}
+                                      className="cursor-pointer p-4 flex flex-wrap justify-between items-center gap-3"
+                                    >
+                                      <div>
+                                        <div className="flex items-center gap-2">
+                                          <h4 className="font-bold text-white text-base">{smm.full_name}</h4>
+                                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 font-bold">
+                                            {smmAssets.length} Assets
+                                          </span>
+                                        </div>
+                                        <p className="text-xs text-zinc-400 mt-0.5">
+                                          🌍 {smm.country} • SM: {(smm.platforms || ["twitter"]).join(", ").toUpperCase()}
+                                        </p>
+                                      </div>
+
+                                      <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                                        <span className="text-xs font-mono text-blue-400 font-bold mr-1">
+                                          {sImpr.toLocaleString()} Impr
+                                        </span>
+                                        <button
+                                          type="button"
+                                          onClick={() => handleToggleSmmLock(smm)}
+                                          className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition-all active:scale-95 ${
+                                            smm.is_locked
+                                              ? "bg-red-500/20 border-red-500/40 text-red-400 hover:bg-red-500 hover:text-black"
+                                              : "bg-emerald-500/20 border-emerald-500/40 text-emerald-400 hover:bg-emerald-500 hover:text-black"
+                                          }`}
+                                          title="Lock or Unlock SMM Weekly Metric Input"
+                                        >
+                                          {smm.is_locked ? "🔒 Locked" : "🔓 Open"}
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => openEditEmployee(smm)}
+                                          className="px-2.5 py-1 rounded-lg bg-zinc-900 border border-zinc-700 text-blue-300 text-[11px] font-bold"
+                                        >
+                                          ✎ Edit SMM
+                                        </button>
+                                      </div>
+                                    </div>
+
+                                    {/* INLINE UNFOLDING ASSETS INSIDE THIS SMM CARD */}
+                                    <div
+                                      className={`grid transition-all duration-300 ease-in-out ${
+                                        isSmmOpen ? "grid-rows-[1fr] opacity-100 border-t border-zinc-800/80" : "grid-rows-[0fr] opacity-0 pointer-events-none"
+                                      }`}
+                                    >
+                                      <div className="overflow-hidden">
+                                        <div className="p-4 bg-black/80 rounded-b-2xl space-y-3">
+                                          <div className="text-[11px] font-bold uppercase text-purple-300">
+                                            🗂 {smm.full_name}&apos;s Managed Social Media Assets ({smmAssets.length}) — Tap any Asset for Full Details & Growth
+                                          </div>
+                                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                                            {smmAssets.map((asset) => {
+                                              const isSuspended = asset.status === "suspended";
+                                              return (
+                                                <div
+                                                  key={asset.id}
+                                                  onClick={() => setInspectingAsset(asset)}
+                                                  className={`cursor-pointer bg-zinc-950 border rounded-xl p-3.5 space-y-2 relative transition-all hover:-translate-y-0.5 hover:border-purple-500 ${
+                                                    isSuspended ? "border-red-500/40 bg-red-950/10" : "border-zinc-800"
+                                                  }`}
+                                                >
+                                                  <button
+                                                    type="button"
+                                                    onClick={(e) => {
+                                                      e.stopPropagation();
+                                                      handleSetAssetStatus(asset, isSuspended ? "active" : "suspended");
+                                                    }}
+                                                    className={`absolute top-2.5 right-2.5 px-2 py-0.5 rounded-full border text-[9px] font-bold ${
+                                                      isSuspended
+                                                        ? "bg-red-500/20 border-red-500/40 text-red-300"
+                                                        : "bg-emerald-500/20 border-emerald-500/40 text-emerald-300"
+                                                    }`}
+                                                  >
+                                                    {isSuspended ? "⚠ SUSP" : "● ACTV"} ⇄
+                                                  </button>
+                                                  <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-purple-500/20 text-purple-300">
+                                                    {asset.platform}
+                                                  </span>
+                                                  <h5 className="font-bold text-white text-sm truncate pr-16">{asset.account_id}</h5>
+                                                  <p className="text-[11px] text-zinc-400">
+                                                    🌍 {asset.country_language} • 🗣 {asset.language || "English"}
+                                                  </p>
+                                                  <div className="flex gap-1.5 pt-1" onClick={(e) => e.stopPropagation()}>
+                                                    <button
+                                                      type="button"
+                                                      onClick={() => setInspectingAsset(asset)}
+                                                      className="flex-1 py-1.5 bg-purple-600/20 text-purple-300 rounded-lg text-[10px] font-bold"
+                                                    >
+                                                      📈 Growth
+                                                    </button>
+                                                    <button
+                                                      type="button"
+                                                      onClick={() => setEditingAsset(asset)}
+                                                      className="flex-1 py-1.5 bg-zinc-900 text-emerald-400 rounded-lg text-[10px] font-bold"
+                                                    >
+                                                      ✎ Edit All
+                                                    </button>
+                                                  </div>
+                                                </div>
+                                              );
+                                            })}
+                                            {smmAssets.length === 0 && (
+                                              <div className="col-span-3 text-center py-4 text-xs text-zinc-500">
+                                                No Assets registered under {smm.full_name} yet.
+                                              </div>
+                                            )}
+                                          </div>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
                           </div>
-                        );
-                      })}
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                )}
-              </div>
-            )}
+                  );
+                })}
+            </div>
           </div>
         )}
 
@@ -666,7 +827,7 @@ export default function AdminCommandCenter() {
           />
         )}
 
-        {/* TAB 3: PERSONNEL DIRECTORY (EDIT TLs & SMMs WITH FANCY MULTI-SELECTS) */}
+        {/* TAB 3: PERSONNEL DIRECTORY (WITH DIRECT LOCK SMM BUTTON + EDIT ALL) */}
         {activeTab === "directory" && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {profiles
@@ -678,8 +839,8 @@ export default function AdminCommandCenter() {
                   (p.country || "").toLowerCase().includes(q)
               )
               .map((emp) => (
-                <div key={emp.id} className="bg-zinc-950 border border-zinc-800 rounded-2xl p-5 space-y-3">
-                  <div className="flex justify-between items-start">
+                <div key={emp.id} className="bg-zinc-950 border border-zinc-800 hover:border-blue-500/40 rounded-2xl p-5 space-y-3 transition-all">
+                  <div className="flex justify-between items-start gap-2">
                     <div>
                       <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300">
                         {emp.role}
@@ -690,12 +851,27 @@ export default function AdminCommandCenter() {
                         SM: {(emp.platforms || ["twitter"]).join(", ").toUpperCase()}
                       </p>
                     </div>
-                    <button
-                      onClick={() => openEditEmployee(emp)}
-                      className="px-3 py-1.5 rounded-xl bg-emerald-500 text-black text-xs font-bold"
-                    >
-                      ✎ Edit All
-                    </button>
+                    <div className="flex items-center gap-1.5">
+                      {emp.role === "smm" && (
+                        <button
+                          type="button"
+                          onClick={() => handleToggleSmmLock(emp)}
+                          className={`px-2.5 py-1.5 rounded-xl text-xs font-bold border transition-all ${
+                            emp.is_locked
+                              ? "bg-red-500/20 border-red-500/40 text-red-400"
+                              : "bg-emerald-500/20 border-emerald-500/40 text-emerald-400"
+                          }`}
+                        >
+                          {emp.is_locked ? "🔒 Locked" : "🔓 Open"}
+                        </button>
+                      )}
+                      <button
+                        onClick={() => openEditEmployee(emp)}
+                        className="px-3 py-1.5 rounded-xl bg-emerald-500 text-black text-xs font-bold"
+                      >
+                        ✎ Edit All
+                      </button>
+                    </div>
                   </div>
                 </div>
               ))}
@@ -720,7 +896,7 @@ export default function AdminCommandCenter() {
                   <div
                     key={asset.id}
                     onClick={() => setInspectingAsset(asset)}
-                    className={`cursor-pointer bg-zinc-950 border rounded-2xl p-5 space-y-3 relative overflow-hidden hover:border-purple-500/60 ${
+                    className={`cursor-pointer bg-zinc-950 border rounded-2xl p-5 space-y-3 relative overflow-hidden transition-all hover:-translate-y-0.5 hover:border-purple-500/60 ${
                       isSuspended ? "border-red-500/50 bg-red-950/10" : "border-zinc-800"
                     }`}
                   >
@@ -759,10 +935,10 @@ export default function AdminCommandCenter() {
                       </button>
                       <button
                         type="button"
-                        onClick={() => setEditingAsset({ ...asset, language: asset.language || "English" })}
+                        onClick={() => setEditingAsset(asset)}
                         className="py-2 bg-zinc-900 text-emerald-400 font-bold rounded-xl text-xs"
                       >
-                        ✎ Edit Asset
+                        ✎ Edit All 15 Fields
                       </button>
                     </div>
                   </div>
@@ -771,86 +947,20 @@ export default function AdminCommandCenter() {
           </div>
         )}
 
-        {/* TAB 5: ARCHIVE VAULT (ALWAYS POPULATED) */}
-        {activeTab === "archive" && (
-          <div className="bg-zinc-950 border border-amber-500/40 rounded-3xl p-5 sm:p-6 space-y-4">
-            <div className="flex justify-between items-center">
-              <div>
-                <h2 className="text-xl font-bold text-white">🗄 Executive Archive Vault ({auditLogs.length} Records)</h2>
-                <p className="text-xs text-zinc-400">
-                  Complete immutable ledger of all employees, social media assets, campaigns, and weekly metrics.
-                </p>
-              </div>
-            </div>
-
-            <div className="overflow-x-auto max-h-[65vh]">
-              <table className="w-full text-left text-xs font-mono text-zinc-300">
-                <thead className="bg-zinc-900 text-zinc-400 uppercase sticky top-0">
-                  <tr>
-                    <th className="p-3">Time</th>
-                    <th className="p-3">Actor</th>
-                    <th className="p-3">Type</th>
-                    <th className="p-3">Summary</th>
-                    <th className="p-3 text-right">Restore</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-zinc-900">
-                  {auditLogs.map((log) => (
-                    <tr key={log.id} className="hover:bg-zinc-900/50">
-                      <td className="p-3 text-zinc-400">{new Date(log.created_at).toLocaleDateString()}</td>
-                      <td className="p-3 text-emerald-400 font-bold">{log.actor_name}</td>
-                      <td className="p-3">
-                        <span className="px-2 py-0.5 rounded bg-zinc-900 text-amber-300 text-[10px]">
-                          {log.entity_type} • {log.action}
-                        </span>
-                      </td>
-                      <td className="p-3 text-white">{log.summary}</td>
-                      <td className="p-3 text-right">
-                        <button
-                          onClick={() => handleRestoreArchive(log)}
-                          className="px-2.5 py-1 rounded bg-amber-500/20 text-amber-300 hover:bg-amber-500 hover:text-black font-bold text-[10px]"
-                        >
-                          ♻ Restore
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
+        {/* TAB 5: DEEP ANALYTICS SUMMARY GRAPHS */}
+        {activeTab === "graphs" && (
+          <ExecutiveAnalyticsGraphs
+            assets={filteredAssets}
+            metrics={metrics}
+            profiles={profiles}
+            onSelectAsset={(a) => setInspectingAsset(a)}
+            titlePrefix="Global Enterprise"
+          />
         )}
 
-        {/* TAB 6: SUMMARY GRAPHS */}
-        {activeTab === "graphs" && (
-          <div className="bg-zinc-950 border border-zinc-800 rounded-2xl p-6 space-y-3">
-            <h3 className="text-xs font-bold uppercase text-cyan-400">Global Team Leader Squad Comparison</h3>
-            {teamLeaders.map((tl) => {
-              const tlSmms = allSmms.filter(
-                (s) => s.team_leader_id === tl.id || (s.team_leader_ids && s.team_leader_ids.includes(tl.id))
-              );
-              const tlAssets = filteredAssets.filter(
-                (a) => a.team_leader_id === tl.id || tlSmms.some((s) => s.id === a.smm_id)
-              );
-              const tlImpr = metrics
-                .filter((m) => tlAssets.some((a) => a.id === m.asset_id))
-                .reduce((s, x) => s + Number(x.impressions || 0), 0);
-              return (
-                <div key={tl.id} className="space-y-1">
-                  <div className="flex justify-between text-xs font-mono">
-                    <span className="text-white font-bold">Commander {tl.full_name} ({tlSmms.length} SMMs)</span>
-                    <span className="text-cyan-300">{tlImpr.toLocaleString()} Impr</span>
-                  </div>
-                  <div className="w-full h-2.5 bg-zinc-900 rounded-full">
-                    <div
-                      className="h-full bg-cyan-400 rounded-full"
-                      style={{ width: `${Math.min(100, Math.max(5, (tlImpr / 100000) * 100))}%` }}
-                    ></div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+        {/* TAB 6: FORENSIC ARCHIVE VAULT */}
+        {activeTab === "archive" && (
+          <ForensicArchiveVault logs={auditLogs} onRestore={handleRestoreArchive} />
         )}
 
         {/* TAB 7: ACHIEVEMENTS */}
@@ -891,8 +1001,8 @@ export default function AdminCommandCenter() {
           { id: "campaign", icon: "🎯", label: "Campaign" },
           { id: "directory", icon: "👥", label: "People" },
           { id: "assets", icon: "🗂", label: "Assets" },
-          { id: "archive", icon: "🗄", label: "Archive" },
           { id: "graphs", icon: "📈", label: "Graphs" },
+          { id: "archive", icon: "🗄", label: "Archive" },
         ].map((t: any) => (
           <button
             key={t.id}
@@ -914,12 +1024,115 @@ export default function AdminCommandCenter() {
           metrics={metrics}
           profiles={profiles}
           onClose={() => setInspectingAsset(null)}
-          onEdit={(a) => setEditingAsset({ ...a, language: a.language || "English" })}
+          onEdit={(a) => setEditingAsset(a)}
           onToggleStatus={handleSetAssetStatus}
         />
       )}
 
-      {/* ADMIN EDIT TL OR SMM MODAL (WITH FANCY MULTI-SELECT FOR COUNTRIES, PLATFORMS, SQUAD SMMS, TLs & ASSETS) */}
+      {/* UNIVERSAL 15-FIELD ASSET EDITOR MODAL */}
+      {editingAsset && (
+        <UniversalAssetEditModal
+          asset={editingAsset}
+          teamLeaders={teamLeaders}
+          smms={allSmms}
+          canReassignSmm={true}
+          onClose={() => setEditingAsset(null)}
+          onSave={handleSaveAsset}
+          onDelete={handleDeleteAsset}
+        />
+      )}
+
+      {/* ADMIN SETTINGS SLIDE-OVER DRAWER */}
+      {showAdminSettings && (
+        <div className="fixed inset-0 z-50 flex justify-end bg-black/80 backdrop-blur-sm animate-in fade-in duration-200" onClick={() => setShowAdminSettings(false)}>
+          <form
+            onSubmit={handleSaveAdminOwnSettings}
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-lg bg-zinc-950 border-l border-emerald-500/40 h-full overflow-y-auto p-6 space-y-5 shadow-2xl"
+          >
+            <div className="flex justify-between items-center border-b border-zinc-800 pb-4">
+              <div>
+                <span className="text-[10px] uppercase font-bold text-emerald-400">Tier 1 — Executive Configuration</span>
+                <h2 className="text-xl font-bold text-white">⚙ Master Admin Settings & Global Locks</h2>
+              </div>
+              <button type="button" onClick={() => setShowAdminSettings(false)} className="px-3 py-1 bg-zinc-900 text-xs text-zinc-300 rounded-xl">
+                ✕
+              </button>
+            </div>
+
+            <div className="p-4 bg-black border border-zinc-800 rounded-2xl space-y-3">
+              <div className="text-xs font-bold uppercase text-amber-400">🔒 Global SMM Submission Lock Controls</div>
+              <p className="text-[11px] text-zinc-400">
+                Instantly freeze or open weekly metric logging across all {allSmms.length} SMM Handlers globally.
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleGlobalBatchLock(true)}
+                  className="py-3 bg-red-500/20 hover:bg-red-500 hover:text-black border border-red-500/40 text-red-400 font-bold rounded-xl text-xs transition-all"
+                >
+                  🔒 Lock All SMMs
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleGlobalBatchLock(false)}
+                  className="py-3 bg-emerald-500/20 hover:bg-emerald-500 hover:text-black border border-emerald-500/40 text-emerald-400 font-bold rounded-xl text-xs transition-all"
+                >
+                  🔓 Unlock All SMMs
+                </button>
+              </div>
+            </div>
+
+            <div>
+              <label className="text-[10px] uppercase font-bold text-zinc-400">Admin Display Name</label>
+              <input
+                type="text"
+                required
+                value={adminDisplayName}
+                onChange={(e) => setAdminDisplayName(e.target.value)}
+                className="w-full mt-1 rounded-xl bg-black border border-zinc-800 p-3 text-xs text-white"
+              />
+            </div>
+
+            <FancyMultiSelect
+              label="Admin Oversight Regions"
+              options={ALL_COUNTRIES}
+              selected={adminCountries}
+              onChange={setAdminCountries}
+            />
+
+            <div>
+              <label className="text-[10px] uppercase font-bold text-zinc-400">New Master Admin Password (Optional)</label>
+              <input
+                type="password"
+                value={adminNewPass}
+                onChange={(e) => setAdminNewPass(e.target.value)}
+                placeholder="Leave blank to keep current password"
+                className="w-full mt-1 rounded-xl bg-black border border-zinc-800 p-3 text-xs text-white"
+              />
+            </div>
+
+            <button type="submit" className="w-full py-3.5 bg-emerald-500 hover:bg-emerald-400 text-black font-bold rounded-xl text-xs shadow-lg">
+              Save Master Admin Settings Live
+            </button>
+
+            <div className="pt-4 border-t border-zinc-800">
+              <button
+                type="button"
+                onClick={async () => {
+                  await supabase.auth.signOut();
+                  setAdminProfile(null);
+                }}
+                className="w-full py-3 bg-zinc-900 hover:bg-red-500/20 text-zinc-400 hover:text-red-400 font-bold rounded-xl text-xs"
+              >
+                Sign Out of Executive Vault
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* ADMIN EDIT TL OR SMM MODAL */}
       {editingEmployee && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-3 sm:p-4" onClick={() => setEditingEmployee(null)}>
           <form
@@ -985,7 +1198,6 @@ export default function AdminCommandCenter() {
               onChange={setEmpCountries}
             />
 
-            {/* When Admin is editing a Team Leader: edit the SMMs under them */}
             {editingEmployee.role === "team_leader" && (
               <FancyEntityMultiSelect
                 label="SMM Handlers Assigned Under This Team Leader"
@@ -999,7 +1211,6 @@ export default function AdminCommandCenter() {
               />
             )}
 
-            {/* When Admin is editing an SMM: edit their Team Leaders AND their Assets */}
             {editingEmployee.role === "smm" && (
               <>
                 <FancyEntityMultiSelect
@@ -1039,104 +1250,6 @@ export default function AdminCommandCenter() {
                   🗑 Delete User
                 </button>
               )}
-            </div>
-          </form>
-        </div>
-      )}
-
-      {/* ADMIN EDIT ASSET MODAL */}
-      {editingAsset && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-3 sm:p-4" onClick={() => setEditingAsset(null)}>
-          <form
-            onSubmit={handleSaveAsset}
-            onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-2xl bg-zinc-950 border border-purple-500/50 rounded-3xl p-5 sm:p-6 space-y-4 max-h-[92vh] overflow-y-auto"
-          >
-            <div className="flex justify-between items-center border-b border-zinc-800 pb-3">
-              <h3 className="text-lg font-bold text-white">✎ Edit Asset: {editingAsset.account_id}</h3>
-              <button type="button" onClick={() => setEditingAsset(null)} className="px-3 py-1 bg-zinc-900 text-xs text-zinc-400 rounded-xl">
-                ✕
-              </button>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <select
-                value={editingAsset.platform || "twitter"}
-                onChange={(e) => setEditingAsset({ ...editingAsset, platform: e.target.value })}
-                className="rounded-xl bg-black border border-zinc-800 p-2.5 text-xs text-white uppercase"
-              >
-                {PLATFORMS.map((p) => (
-                  <option key={p} value={p}>{p}</option>
-                ))}
-              </select>
-              <select
-                value={editingAsset.country_language || "Kenya"}
-                onChange={(e) => setEditingAsset({ ...editingAsset, country_language: e.target.value })}
-                className="rounded-xl bg-black border border-zinc-800 p-2.5 text-xs text-white"
-              >
-                {ALL_COUNTRIES.map((c) => (
-                  <option key={c} value={c}>{c}</option>
-                ))}
-              </select>
-              <select
-                value={editingAsset.language || "English"}
-                onChange={(e) => setEditingAsset({ ...editingAsset, language: e.target.value })}
-                className="rounded-xl bg-black border border-zinc-800 p-2.5 text-xs text-white"
-              >
-                {ASSET_LANGUAGES.map((l) => (
-                  <option key={l} value={l}>{l}</option>
-                ))}
-              </select>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <input
-                type="text"
-                value={editingAsset.account_id || ""}
-                onChange={(e) => setEditingAsset({ ...editingAsset, account_id: e.target.value })}
-                placeholder="Handle"
-                className="rounded-xl bg-black border border-zinc-800 p-2.5 text-xs text-white"
-              />
-              <input
-                type="text"
-                value={editingAsset.account_password || ""}
-                onChange={(e) => setEditingAsset({ ...editingAsset, account_password: e.target.value })}
-                placeholder="Password"
-                className="rounded-xl bg-black border border-zinc-800 p-2.5 text-xs text-white"
-              />
-              <select
-                value={editingAsset.smm_id || ""}
-                onChange={(e) => setEditingAsset({ ...editingAsset, smm_id: e.target.value })}
-                className="rounded-xl bg-black border border-zinc-800 p-2.5 text-xs text-white"
-              >
-                <option value="">Unassigned SMM</option>
-                {allSmms.map((s) => (
-                  <option key={s.id} value={s.id}>SMM: {s.full_name}</option>
-                ))}
-              </select>
-              <select
-                value={editingAsset.team_leader_id || ""}
-                onChange={(e) => setEditingAsset({ ...editingAsset, team_leader_id: e.target.value })}
-                className="rounded-xl bg-black border border-zinc-800 p-2.5 text-xs text-white"
-              >
-                <option value="">Unassigned TL</option>
-                {teamLeaders.map((tl) => (
-                  <option key={tl.id} value={tl.id}>TL: {tl.full_name}</option>
-                ))}
-              </select>
-            </div>
-
-            <div className="flex gap-2">
-              <button type="submit" className="flex-1 py-3 bg-emerald-500 text-black font-bold rounded-xl text-xs">
-                Save Asset Live
-              </button>
-              <button
-                type="button"
-                onClick={() => handleDeleteAsset(editingAsset.id)}
-                className="px-4 py-3 bg-red-500/20 text-red-400 font-bold rounded-xl text-xs"
-              >
-                🗑 Delete
-              </button>
             </div>
           </form>
         </div>

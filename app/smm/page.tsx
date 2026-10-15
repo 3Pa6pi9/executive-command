@@ -13,7 +13,13 @@ import {
   exportHorizonCSV,
   computeAchievements,
 } from "@/lib/constants";
-import { AssetGrowthModal, FancyMultiSelect, FancyEntityMultiSelect } from "@/components/EnterpriseUI";
+import {
+  AssetGrowthModal,
+  UniversalAssetEditModal,
+  FancyMultiSelect,
+  FancyEntityMultiSelect,
+  ExecutiveAnalyticsGraphs,
+} from "@/components/EnterpriseUI";
 
 export default function SMMDashboard() {
   const [profile, setProfile] = useState<any>(null);
@@ -39,7 +45,6 @@ export default function SMMDashboard() {
   const [newPassword, setNewPassword] = useState("");
   const [autoMaskVault, setAutoMaskVault] = useState(true);
 
-  // 10-Field Asset Registration State (including Language)
   const [regPlatform, setRegPlatform] = useState("twitter");
   const [regTlId, setRegTlId] = useState("");
   const [regProject, setRegProject] = useState("General Campaign");
@@ -54,7 +59,6 @@ export default function SMMDashboard() {
   const [assetLang, setAssetLang] = useState("English");
   const [phoneNumber, setPhoneNumber] = useState("");
 
-  // Weekly Metrics Form State
   const [weekOf, setWeekOf] = useState(new Date().toISOString().split("T")[0]);
   const [impressions, setImpressions] = useState("");
   const [engagements, setEngagements] = useState("");
@@ -287,15 +291,13 @@ export default function SMMDashboard() {
     }
   };
 
-  const handleUpdateExistingAsset = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editingAsset) return;
+  const handleUpdateExistingAsset = async (updatedAsset: any) => {
     await fetch("/api/crud", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ actorId: profile.id, entity: "asset", action: "update", payload: editingAsset }),
+      body: JSON.stringify({ actorId: profile.id, entity: "asset", action: "update", payload: updatedAsset }),
     });
-    setStatusMsg("✓ Asset Updated Live!");
+    setStatusMsg("✓ All 15 Asset Fields Updated Live!");
     setEditingAsset(null);
     await refreshProfileAndAssets(profile.id);
   };
@@ -451,28 +453,28 @@ export default function SMMDashboard() {
 
         {/* Desktop Tabs */}
         <div className="hidden md:flex flex-wrap gap-2 bg-zinc-950 border border-zinc-800 p-3 rounded-2xl">
-          <button onClick={() => setActiveTab("log")} className={`px-4 py-2 rounded-xl text-xs font-bold ${activeTab === "log" ? "bg-purple-600 text-white" : "bg-zinc-900 text-zinc-400"}`}>
+          <button onClick={() => setActiveTab("log")} className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${activeTab === "log" ? "bg-purple-600 text-white shadow-md" : "bg-zinc-900 text-zinc-400"}`}>
             📊 Weekly Metrics
           </button>
-          <button onClick={() => setActiveTab("assets")} className={`px-4 py-2 rounded-xl text-xs font-bold ${activeTab === "assets" ? "bg-purple-600 text-white" : "bg-zinc-900 text-zinc-400"}`}>
+          <button onClick={() => setActiveTab("assets")} className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${activeTab === "assets" ? "bg-purple-600 text-white shadow-md" : "bg-zinc-900 text-zinc-400"}`}>
             🗂 My Assets ({assets.length})
           </button>
-          <button onClick={() => setActiveTab("graphs")} className={`px-4 py-2 rounded-xl text-xs font-bold ${activeTab === "graphs" ? "bg-cyan-400 text-black" : "bg-zinc-900 text-cyan-300"}`}>
+          <button onClick={() => setActiveTab("graphs")} className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${activeTab === "graphs" ? "bg-cyan-400 text-black shadow-md" : "bg-zinc-900 text-cyan-300"}`}>
             📈 Summary Graphs
           </button>
-          <button onClick={() => setActiveTab("achievements")} className={`px-4 py-2 rounded-xl text-xs font-bold ${activeTab === "achievements" ? "bg-yellow-400 text-black" : "bg-zinc-900 text-yellow-300"}`}>
+          <button onClick={() => setActiveTab("achievements")} className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${activeTab === "achievements" ? "bg-yellow-400 text-black shadow-md" : "bg-zinc-900 text-yellow-300"}`}>
             🏆 Achievements
           </button>
-          <button onClick={() => setActiveTab("register")} className={`px-4 py-2 rounded-xl text-xs font-bold ${activeTab === "register" ? "bg-emerald-600 text-white" : "bg-zinc-900 text-emerald-400"}`}>
+          <button onClick={() => setActiveTab("register")} className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${activeTab === "register" ? "bg-emerald-600 text-white shadow-md" : "bg-zinc-900 text-emerald-400"}`}>
             + Create Asset
           </button>
-          <button onClick={() => setActiveTab("bulk")} className={`px-4 py-2 rounded-xl text-xs font-bold ${activeTab === "bulk" ? "bg-amber-500 text-black" : "bg-zinc-900 text-amber-400"}`}>
+          <button onClick={() => setActiveTab("bulk")} className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${activeTab === "bulk" ? "bg-amber-500 text-black shadow-md" : "bg-zinc-900 text-amber-400"}`}>
             ⚡ Bulk Register
           </button>
         </div>
 
         {statusMsg && (
-          <div className="p-3 rounded-xl bg-purple-500/15 border border-purple-500/40 text-purple-200 text-xs text-center font-bold">
+          <div className="p-3 rounded-xl bg-purple-500/15 border border-purple-500/40 text-purple-200 text-xs text-center font-bold animate-pulse">
             {statusMsg}
           </div>
         )}
@@ -608,7 +610,7 @@ export default function SMMDashboard() {
           </div>
         )}
 
-        {/* TAB 2: MY ASSETS (CLICK ANY CARD FOR FULL DETAILS & GROWTH + CORNER TOGGLE) */}
+        {/* TAB 2: MY ASSETS */}
         {activeTab === "assets" && (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {assets.map((asset) => {
@@ -625,7 +627,6 @@ export default function SMMDashboard() {
                     isSuspended ? "border-red-500/50 bg-red-950/10" : "border-zinc-800"
                   }`}
                 >
-                  {/* Single Small Corner Toggle */}
                   <button
                     type="button"
                     onClick={(e) => {
@@ -637,10 +638,9 @@ export default function SMMDashboard() {
                         ? "bg-red-500/20 border-red-500/40 text-red-300"
                         : "bg-emerald-500/20 border-emerald-500/40 text-emerald-300"
                     }`}
-                    title="Tap to toggle Active / Suspended"
                   >
                     <span>{isSuspended ? "⚠ SUSP" : "● ACTV"}</span>
-                    <span className="opacity-75">⇄</span>
+                    <span>⇄</span>
                   </button>
 
                   <div>
@@ -688,10 +688,10 @@ export default function SMMDashboard() {
                     </button>
                     <button
                       type="button"
-                      onClick={() => setEditingAsset({ ...asset, language: asset.language || "English" })}
+                      onClick={() => setEditingAsset(asset)}
                       className="py-2 bg-zinc-900 border border-zinc-800 text-emerald-400 font-bold rounded-xl text-xs"
                     >
-                      ✎ Edit All Fields
+                      ✎ Edit All 15 Fields
                     </button>
                   </div>
                 </div>
@@ -700,32 +700,15 @@ export default function SMMDashboard() {
           </div>
         )}
 
-        {/* TAB 3: SUMMARY GRAPHS */}
+        {/* TAB 3: DEEP SUMMARY GRAPHS */}
         {activeTab === "graphs" && (
-          <div className="bg-zinc-950 border border-zinc-800 rounded-2xl p-6 space-y-3">
-            <h3 className="text-xs font-bold uppercase text-cyan-400">My Asset Impressions Breakdown</h3>
-            {assets.map((a) => {
-              const aImpr = allMyMetrics
-                .filter((m) => m.asset_id === a.id)
-                .reduce((s, x) => s + Number(x.impressions || 0), 0);
-              return (
-                <div key={a.id} onClick={() => setInspectingAsset(a)} className="space-y-1 cursor-pointer">
-                  <div className="flex justify-between text-xs font-mono">
-                    <span className="text-white font-bold">
-                      [{a.platform.toUpperCase()}] {a.account_id} ({a.country_language} • {a.language || "English"})
-                    </span>
-                    <span className="text-cyan-300">{aImpr.toLocaleString()} Impr</span>
-                  </div>
-                  <div className="w-full h-2.5 bg-zinc-900 rounded-full">
-                    <div
-                      className="h-full bg-cyan-400 rounded-full"
-                      style={{ width: `${Math.min(100, Math.max(5, (aImpr / 50000) * 100))}%` }}
-                    ></div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+          <ExecutiveAnalyticsGraphs
+            assets={assets}
+            metrics={allMyMetrics}
+            profiles={[profile, ...teamLeaders]}
+            onSelectAsset={(a) => setInspectingAsset(a)}
+            titlePrefix={`${profile.full_name} Personal`}
+          />
         )}
 
         {/* TAB 4: ACHIEVEMENTS */}
@@ -758,7 +741,7 @@ export default function SMMDashboard() {
           </div>
         )}
 
-        {/* TAB 5: FULL 10-FIELD ASSET REGISTRATION WITH COUNTRY & LANGUAGE DROPDOWNS */}
+        {/* TAB 5: REGISTER NEW ASSET */}
         {activeTab === "register" && (
           <form onSubmit={handleRegisterAsset} autoComplete="off" className="max-w-2xl mx-auto bg-zinc-950 border border-zinc-800 rounded-2xl p-5 sm:p-8 space-y-4">
             <h2 className="text-xl font-bold text-white">Create & Register New Social Media Asset</h2>
@@ -880,7 +863,7 @@ export default function SMMDashboard() {
         ))}
       </div>
 
-      {/* SMM SETTINGS DRAWER WITH FANCY MULTI-SELECT MENUS */}
+      {/* SMM SETTINGS DRAWER */}
       {showSettings && (
         <div className="fixed inset-0 z-50 flex justify-end bg-black/80 backdrop-blur-sm" onClick={() => setShowSettings(false)}>
           <form
@@ -940,182 +923,28 @@ export default function SMMDashboard() {
         </div>
       )}
 
-      {/* FULL ASSET INSPECTOR & GROWTH MODAL */}
+      {/* FULL ASSET INSPECTOR MODAL */}
       {inspectingAsset && (
         <AssetGrowthModal
           asset={inspectingAsset}
           metrics={allMyMetrics}
           profiles={[profile, ...teamLeaders]}
           onClose={() => setInspectingAsset(null)}
-          onEdit={(a) => setEditingAsset({ ...a, language: a.language || "English" })}
+          onEdit={(a) => setEditingAsset(a)}
           onToggleStatus={handleSetAssetStatus}
         />
       )}
 
-      {/* FULL 12-FIELD SMM ASSET EDIT MODAL */}
+      {/* UNIVERSAL 15-FIELD ASSET EDITOR MODAL */}
       {editingAsset && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-3 sm:p-4" onClick={() => setEditingAsset(null)}>
-          <form
-            onSubmit={handleUpdateExistingAsset}
-            onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-2xl bg-zinc-950 border border-emerald-500/50 rounded-3xl p-5 sm:p-6 space-y-4 max-h-[92vh] overflow-y-auto"
-          >
-            <div className="flex justify-between items-center border-b border-zinc-800 pb-3">
-              <h3 className="text-lg font-bold text-white">✎ Edit All Asset Details, Country, Language & SM Type</h3>
-              <button type="button" onClick={() => setEditingAsset(null)} className="px-3 py-1 bg-zinc-900 text-xs text-zinc-400 rounded-xl">
-                ✕
-              </button>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div>
-                <label className="text-[10px] uppercase font-bold text-zinc-400">Social Media Type</label>
-                <select
-                  value={editingAsset.platform || "twitter"}
-                  onChange={(e) => setEditingAsset({ ...editingAsset, platform: e.target.value })}
-                  className="w-full mt-1 rounded-xl bg-black border border-zinc-800 p-2.5 text-xs text-white uppercase"
-                >
-                  {PLATFORMS.map((p) => (
-                    <option key={p} value={p}>{p}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="text-[10px] uppercase font-bold text-zinc-400">Asset Country</label>
-                <select
-                  value={editingAsset.country_language || "Kenya"}
-                  onChange={(e) => setEditingAsset({ ...editingAsset, country_language: e.target.value })}
-                  className="w-full mt-1 rounded-xl bg-black border border-zinc-800 p-2.5 text-xs text-white"
-                >
-                  {ALL_COUNTRIES.map((c) => (
-                    <option key={c} value={c}>{c}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="text-[10px] uppercase font-bold text-zinc-400">Asset Language</label>
-                <select
-                  value={editingAsset.language || "English"}
-                  onChange={(e) => setEditingAsset({ ...editingAsset, language: e.target.value })}
-                  className="w-full mt-1 rounded-xl bg-black border border-zinc-800 p-2.5 text-xs text-white"
-                >
-                  {ASSET_LANGUAGES.map((l) => (
-                    <option key={l} value={l}>{l}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <label className="text-[10px] uppercase font-bold text-zinc-400">Asset Handle / ID</label>
-                <input
-                  type="text"
-                  value={editingAsset.account_id || ""}
-                  onChange={(e) => setEditingAsset({ ...editingAsset, account_id: e.target.value })}
-                  className="w-full mt-1 rounded-xl bg-black border border-zinc-800 p-2.5 text-xs text-white"
-                />
-              </div>
-              <div>
-                <label className="text-[10px] uppercase font-bold text-zinc-400">Asset Password</label>
-                <input
-                  type="text"
-                  value={editingAsset.account_password || ""}
-                  onChange={(e) => setEditingAsset({ ...editingAsset, account_password: e.target.value })}
-                  className="w-full mt-1 rounded-xl bg-black border border-zinc-800 p-2.5 text-xs text-white"
-                />
-              </div>
-              <div>
-                <label className="text-[10px] uppercase font-bold text-zinc-400">Profile Link</label>
-                <input
-                  type="url"
-                  value={editingAsset.profile_link || ""}
-                  onChange={(e) => setEditingAsset({ ...editingAsset, profile_link: e.target.value })}
-                  className="w-full mt-1 rounded-xl bg-black border border-zinc-800 p-2.5 text-xs text-white"
-                />
-              </div>
-              <div>
-                <label className="text-[10px] uppercase font-bold text-zinc-400">Bio</label>
-                <input
-                  type="text"
-                  value={editingAsset.bio || ""}
-                  onChange={(e) => setEditingAsset({ ...editingAsset, bio: e.target.value })}
-                  className="w-full mt-1 rounded-xl bg-black border border-zinc-800 p-2.5 text-xs text-white"
-                />
-              </div>
-              <div>
-                <label className="text-[10px] uppercase font-bold text-zinc-400">Recovery Email</label>
-                <input
-                  type="email"
-                  value={editingAsset.email || ""}
-                  onChange={(e) => setEditingAsset({ ...editingAsset, email: e.target.value })}
-                  className="w-full mt-1 rounded-xl bg-black border border-zinc-800 p-2.5 text-xs text-white"
-                />
-              </div>
-              <div>
-                <label className="text-[10px] uppercase font-bold text-zinc-400">Email Password</label>
-                <input
-                  type="text"
-                  value={editingAsset.email_password || ""}
-                  onChange={(e) => setEditingAsset({ ...editingAsset, email_password: e.target.value })}
-                  className="w-full mt-1 rounded-xl bg-black border border-zinc-800 p-2.5 text-xs text-white"
-                />
-              </div>
-              <div>
-                <label className="text-[10px] uppercase font-bold text-zinc-400">2FA Secret Key</label>
-                <input
-                  type="text"
-                  value={editingAsset.two_fa_code || ""}
-                  onChange={(e) => setEditingAsset({ ...editingAsset, two_fa_code: e.target.value })}
-                  className="w-full mt-1 rounded-xl bg-black border border-zinc-800 p-2.5 text-xs text-white"
-                />
-              </div>
-              <div>
-                <label className="text-[10px] uppercase font-bold text-zinc-400">Phone Number</label>
-                <input
-                  type="text"
-                  value={editingAsset.phone_number || ""}
-                  onChange={(e) => setEditingAsset({ ...editingAsset, phone_number: e.target.value })}
-                  className="w-full mt-1 rounded-xl bg-black border border-zinc-800 p-2.5 text-xs text-white"
-                />
-              </div>
-              <div>
-                <label className="text-[10px] uppercase font-bold text-zinc-400">Assigned Team Leader</label>
-                <select
-                  value={editingAsset.team_leader_id || ""}
-                  onChange={(e) => setEditingAsset({ ...editingAsset, team_leader_id: e.target.value })}
-                  className="w-full mt-1 rounded-xl bg-black border border-zinc-800 p-2.5 text-xs text-white"
-                >
-                  {teamLeaders.map((tl) => (
-                    <option key={tl.id} value={tl.id}>{tl.full_name}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="text-[10px] uppercase font-bold text-zinc-400">Campaign / Project</label>
-                <input
-                  type="text"
-                  value={editingAsset.project_name || ""}
-                  onChange={(e) => setEditingAsset({ ...editingAsset, project_name: e.target.value })}
-                  className="w-full mt-1 rounded-xl bg-black border border-zinc-800 p-2.5 text-xs text-white"
-                />
-              </div>
-            </div>
-
-            <div className="flex gap-2 pt-2">
-              <button type="submit" className="flex-1 py-3 bg-emerald-500 text-black font-bold rounded-xl text-xs">
-                Save All Asset Changes Live
-              </button>
-              <button
-                type="button"
-                onClick={() => handleDeleteOwnAsset(editingAsset.id)}
-                className="px-4 py-3 bg-red-500/20 text-red-400 font-bold rounded-xl text-xs"
-              >
-                🗑 Delete Asset
-              </button>
-            </div>
-          </form>
-        </div>
+        <UniversalAssetEditModal
+          asset={editingAsset}
+          teamLeaders={teamLeaders}
+          canReassignSmm={false}
+          onClose={() => setEditingAsset(null)}
+          onSave={handleUpdateExistingAsset}
+          onDelete={handleDeleteOwnAsset}
+        />
       )}
     </div>
   );

@@ -15,9 +15,11 @@ import {
 } from "@/lib/constants";
 import {
   AssetGrowthModal,
+  UniversalAssetEditModal,
   FancyMultiSelect,
   FancyEntityMultiSelect,
   CampaignDispatchWizard,
+  ExecutiveAnalyticsGraphs,
 } from "@/components/EnterpriseUI";
 
 export default function TeamLeaderPortal() {
@@ -54,7 +56,7 @@ export default function TeamLeaderPortal() {
   const [newSmmCountries, setNewSmmCountries] = useState<string[]>(["Kenya"]);
   const [newSmmPlatforms, setNewSmmPlatforms] = useState<string[]>(["twitter"]);
 
-  // Edit SMM Modal State (Edits SMM Name, SM Platforms, Country, and Assigned Assets)
+  // Edit SMM Modal State
   const [editingSmm, setEditingSmm] = useState<any>(null);
   const [editSmmCountries, setEditSmmCountries] = useState<string[]>([]);
   const [editSmmPlatforms, setEditSmmPlatforms] = useState<string[]>([]);
@@ -299,13 +301,12 @@ export default function TeamLeaderPortal() {
         payload: { id: assetId },
       }),
     });
+    setEditingAsset(null);
     setStatusMsg("🗑 Asset removed.");
     await loadSquadData(tlProfile.id);
   };
 
-  const handleSaveEditedAsset = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editingAsset) return;
+  const handleSaveEditedAsset = async (updatedAsset: any) => {
     await fetch("/api/crud", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -313,11 +314,11 @@ export default function TeamLeaderPortal() {
         actorId: tlProfile.id,
         entity: "asset",
         action: "update",
-        payload: editingAsset,
+        payload: updatedAsset,
       }),
     });
     setEditingAsset(null);
-    setStatusMsg("✓ Asset Updated Live!");
+    setStatusMsg("✓ All 15 Asset Fields Updated Live!");
     await loadSquadData(tlProfile.id);
   };
 
@@ -425,7 +426,6 @@ export default function TeamLeaderPortal() {
               Authenticate @tl
             </button>
           </form>
-          {/* Strictly only SMM return link — NO Admin Vault link */}
           <div className="mt-6 text-center">
             <Link href="/" className="text-xs text-zinc-500 hover:text-purple-400">
               ← Return to SMM Portal
@@ -442,7 +442,7 @@ export default function TeamLeaderPortal() {
   return (
     <div className="min-h-screen bg-black text-zinc-100 p-3 sm:p-6 md:p-8 pb-28 md:pb-10 font-sans">
       <div className="max-w-7xl mx-auto space-y-4 sm:space-y-6">
-        {/* Top Bar with Front-and-Center Give Campaign Button */}
+        {/* Top Bar */}
         <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center border-b border-zinc-800 pb-4 gap-3">
           <div>
             <div className="flex items-center gap-2">
@@ -516,7 +516,7 @@ export default function TeamLeaderPortal() {
         </div>
 
         {statusMsg && (
-          <div className="p-3 rounded-xl bg-blue-500/15 border border-blue-500/40 text-blue-300 text-xs text-center font-bold">
+          <div className="p-3 rounded-xl bg-blue-500/15 border border-blue-500/40 text-blue-300 text-xs text-center font-bold animate-pulse">
             {statusMsg}
           </div>
         )}
@@ -524,19 +524,19 @@ export default function TeamLeaderPortal() {
         {/* Desktop Tabs */}
         <div className="hidden md:flex flex-wrap justify-between items-center gap-2 bg-zinc-950 border border-zinc-800 p-3 rounded-2xl">
           <div className="flex flex-wrap gap-2">
-            <button onClick={() => setActiveTab("squad")} className={`px-4 py-2 rounded-xl text-xs font-bold ${activeTab === "squad" ? "bg-blue-600 text-white" : "bg-zinc-900 text-zinc-400"}`}>
+            <button onClick={() => setActiveTab("squad")} className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${activeTab === "squad" ? "bg-blue-600 text-white shadow-md" : "bg-zinc-900 text-zinc-400"}`}>
               👥 Squad SMMs ({squadMembers.length})
             </button>
-            <button onClick={() => setActiveTab("campaign")} className={`px-4 py-2 rounded-xl text-xs font-bold ${activeTab === "campaign" ? "bg-purple-600 text-white" : "bg-zinc-900 text-purple-400 border border-purple-500/30"}`}>
+            <button onClick={() => setActiveTab("campaign")} className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${activeTab === "campaign" ? "bg-purple-600 text-white shadow-md" : "bg-zinc-900 text-purple-400 border border-purple-500/30"}`}>
               🎯 Give Campaign
             </button>
-            <button onClick={() => setActiveTab("assets")} className={`px-4 py-2 rounded-xl text-xs font-bold ${activeTab === "assets" ? "bg-purple-600 text-white" : "bg-zinc-900 text-zinc-400"}`}>
+            <button onClick={() => setActiveTab("assets")} className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${activeTab === "assets" ? "bg-purple-600 text-white shadow-md" : "bg-zinc-900 text-zinc-400"}`}>
               🗂 Squad Assets ({squadAssets.length})
             </button>
-            <button onClick={() => setActiveTab("graphs")} className={`px-4 py-2 rounded-xl text-xs font-bold ${activeTab === "graphs" ? "bg-cyan-400 text-black" : "bg-zinc-900 text-cyan-300"}`}>
+            <button onClick={() => setActiveTab("graphs")} className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${activeTab === "graphs" ? "bg-cyan-400 text-black shadow-md" : "bg-zinc-900 text-cyan-300"}`}>
               📈 Summary Graphs
             </button>
-            <button onClick={() => setActiveTab("achievements")} className={`px-4 py-2 rounded-xl text-xs font-bold ${activeTab === "achievements" ? "bg-yellow-400 text-black" : "bg-zinc-900 text-yellow-300"}`}>
+            <button onClick={() => setActiveTab("achievements")} className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${activeTab === "achievements" ? "bg-yellow-400 text-black shadow-md" : "bg-zinc-900 text-yellow-300"}`}>
               🏆 Squad Achievements
             </button>
           </div>
@@ -549,7 +549,7 @@ export default function TeamLeaderPortal() {
           />
         </div>
 
-        {/* TAB 1: SQUAD SMM CARDS (WITH EDIT BUTTON FOR PLATFORMS, COUNTRY & ASSETS) */}
+        {/* TAB 1: SQUAD SMM CARDS */}
         {activeTab === "squad" && (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {squadMembers
@@ -561,7 +561,7 @@ export default function TeamLeaderPortal() {
                 const totalEng = smmLogs.reduce((acc, x) => acc + (x.engagements || 0), 0);
 
                 return (
-                  <div key={smm.id} className="rounded-2xl p-5 bg-zinc-950 border border-zinc-800 space-y-3">
+                  <div key={smm.id} className="rounded-2xl p-5 bg-zinc-950 border border-zinc-800 hover:border-blue-500/40 space-y-3 transition-all">
                     <div className="flex justify-between items-start gap-2">
                       <div>
                         <h3 className="text-lg font-bold text-white">{smm.full_name}</h3>
@@ -612,7 +612,7 @@ export default function TeamLeaderPortal() {
                               key={a.id}
                               type="button"
                               onClick={() => setInspectingAsset(a)}
-                              className="px-2 py-1 rounded-lg bg-black border border-zinc-800 hover:border-purple-500 text-[11px] text-zinc-200 font-mono"
+                              className="px-2 py-1 rounded-lg bg-black border border-zinc-800 hover:border-purple-500 text-[11px] text-zinc-200 font-mono transition-all"
                             >
                               [{a.platform}] {a.account_id}
                             </button>
@@ -642,7 +642,7 @@ export default function TeamLeaderPortal() {
           />
         )}
 
-        {/* TAB 3: SQUAD ASSETS WITH SMALL CORNER TOGGLE & FULL GROWTH INSPECTOR */}
+        {/* TAB 3: SQUAD ASSETS */}
         {activeTab === "assets" && (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {squadAssets
@@ -661,7 +661,6 @@ export default function TeamLeaderPortal() {
                       isSuspended ? "border-red-500/50 bg-red-950/10" : "border-zinc-800"
                     }`}
                   >
-                    {/* Small Corner Toggle */}
                     <button
                       type="button"
                       onClick={(e) => {
@@ -693,27 +692,20 @@ export default function TeamLeaderPortal() {
                       <span className="text-blue-400 font-bold">{totalImpr.toLocaleString()}</span>
                     </div>
 
-                    <div className="grid grid-cols-3 gap-2 pt-1" onClick={(e) => e.stopPropagation()}>
+                    <div className="grid grid-cols-2 gap-2 pt-1" onClick={(e) => e.stopPropagation()}>
                       <button
                         type="button"
                         onClick={() => setInspectingAsset(asset)}
                         className="py-2 bg-blue-600/20 text-blue-300 font-bold rounded-xl text-xs"
                       >
-                        📈 Growth
+                        📈 Full Details & Growth
                       </button>
                       <button
                         type="button"
-                        onClick={() => setEditingAsset({ ...asset, language: asset.language || "English" })}
+                        onClick={() => setEditingAsset(asset)}
                         className="py-2 bg-zinc-900 text-emerald-400 font-bold rounded-xl text-xs"
                       >
-                        ✎ Edit
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveAsset(asset.id)}
-                        className="py-2 bg-zinc-900 text-red-400 font-bold rounded-xl text-xs"
-                      >
-                        🗑 Delete
+                        ✎ Edit All 15 Fields
                       </button>
                     </div>
                   </div>
@@ -722,31 +714,15 @@ export default function TeamLeaderPortal() {
           </div>
         )}
 
-        {/* TAB 4: SUMMARY GRAPHS */}
+        {/* TAB 4: DEEP SUMMARY GRAPHS */}
         {activeTab === "graphs" && (
-          <div className="bg-zinc-950 border border-zinc-800 rounded-2xl p-6 space-y-3">
-            <h3 className="text-xs font-bold uppercase text-cyan-400">Squad SMM Output Comparison</h3>
-            {squadMembers.map((smm) => {
-              const sAssets = squadAssets.filter((a) => a.smm_id === smm.id);
-              const sImpr = squadMetrics
-                .filter((m) => sAssets.some((a) => a.id === m.asset_id))
-                .reduce((s, x) => s + Number(x.impressions || 0), 0);
-              return (
-                <div key={smm.id} className="space-y-1">
-                  <div className="flex justify-between text-xs font-mono">
-                    <span className="text-white font-bold">{smm.full_name}</span>
-                    <span className="text-cyan-300">{sImpr.toLocaleString()} Impr</span>
-                  </div>
-                  <div className="w-full h-2.5 bg-zinc-900 rounded-full">
-                    <div
-                      className="h-full bg-cyan-400 rounded-full"
-                      style={{ width: `${Math.min(100, Math.max(5, (sImpr / 50000) * 100))}%` }}
-                    ></div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+          <ExecutiveAnalyticsGraphs
+            assets={squadAssets}
+            metrics={squadMetrics}
+            profiles={[tlProfile, ...squadMembers]}
+            onSelectAsset={(a) => setInspectingAsset(a)}
+            titlePrefix={`Commander ${tlProfile.full_name} Squad`}
+          />
         )}
 
         {/* TAB 5: ACHIEVEMENTS */}
@@ -809,12 +785,25 @@ export default function TeamLeaderPortal() {
           metrics={squadMetrics}
           profiles={[tlProfile, ...squadMembers]}
           onClose={() => setInspectingAsset(null)}
-          onEdit={(a) => setEditingAsset({ ...a, language: a.language || "English" })}
+          onEdit={(a) => setEditingAsset(a)}
           onToggleStatus={handleSetAssetStatus}
         />
       )}
 
-      {/* TL EDIT SMM MODAL (EDITS SMM NAME, SOCIAL MEDIA PLATFORMS, COUNTRY & ASSIGNED ASSETS) */}
+      {/* UNIVERSAL 15-FIELD ASSET EDITOR MODAL */}
+      {editingAsset && (
+        <UniversalAssetEditModal
+          asset={editingAsset}
+          teamLeaders={allTeamLeaders.length > 0 ? allTeamLeaders : [tlProfile]}
+          smms={squadMembers}
+          canReassignSmm={true}
+          onClose={() => setEditingAsset(null)}
+          onSave={handleSaveEditedAsset}
+          onDelete={handleRemoveAsset}
+        />
+      )}
+
+      {/* TL EDIT SMM MODAL */}
       {editingSmm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-3 sm:p-4" onClick={() => setEditingSmm(null)}>
           <form
@@ -884,115 +873,6 @@ export default function TeamLeaderPortal() {
         </div>
       )}
 
-      {/* TL EDIT ASSET MODAL */}
-      {editingAsset && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-3 sm:p-4" onClick={() => setEditingAsset(null)}>
-          <form
-            onSubmit={handleSaveEditedAsset}
-            onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-2xl bg-zinc-950 border border-emerald-500/50 rounded-3xl p-5 sm:p-6 space-y-4 max-h-[92vh] overflow-y-auto"
-          >
-            <div className="flex justify-between items-center border-b border-zinc-800 pb-3">
-              <h3 className="text-lg font-bold text-white">✎ Edit Squad Asset: {editingAsset.account_id}</h3>
-              <button type="button" onClick={() => setEditingAsset(null)} className="px-3 py-1 bg-zinc-900 text-xs text-zinc-400 rounded-xl">
-                ✕
-              </button>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div>
-                <label className="text-[10px] uppercase font-bold text-zinc-400">Social Media Platform</label>
-                <select
-                  value={editingAsset.platform || "twitter"}
-                  onChange={(e) => setEditingAsset({ ...editingAsset, platform: e.target.value })}
-                  className="w-full mt-1 rounded-xl bg-black border border-zinc-800 p-2.5 text-xs text-white uppercase"
-                >
-                  {PLATFORMS.map((p) => (
-                    <option key={p} value={p}>{p}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="text-[10px] uppercase font-bold text-zinc-400">Country</label>
-                <select
-                  value={editingAsset.country_language || "Kenya"}
-                  onChange={(e) => setEditingAsset({ ...editingAsset, country_language: e.target.value })}
-                  className="w-full mt-1 rounded-xl bg-black border border-zinc-800 p-2.5 text-xs text-white"
-                >
-                  {ALL_COUNTRIES.map((c) => (
-                    <option key={c} value={c}>{c}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="text-[10px] uppercase font-bold text-zinc-400">Language</label>
-                <select
-                  value={editingAsset.language || "English"}
-                  onChange={(e) => setEditingAsset({ ...editingAsset, language: e.target.value })}
-                  className="w-full mt-1 rounded-xl bg-black border border-zinc-800 p-2.5 text-xs text-white"
-                >
-                  {ASSET_LANGUAGES.map((l) => (
-                    <option key={l} value={l}>{l}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <input
-                type="text"
-                value={editingAsset.account_id || ""}
-                onChange={(e) => setEditingAsset({ ...editingAsset, account_id: e.target.value })}
-                placeholder="Handle"
-                className="rounded-xl bg-black border border-zinc-800 p-2.5 text-xs text-white"
-              />
-              <select
-                value={editingAsset.smm_id || ""}
-                onChange={(e) => setEditingAsset({ ...editingAsset, smm_id: e.target.value })}
-                className="rounded-xl bg-black border border-zinc-800 p-2.5 text-xs text-white"
-              >
-                <option value="">Unassigned</option>
-                {squadMembers.map((m) => (
-                  <option key={m.id} value={m.id}>SMM: {m.full_name}</option>
-                ))}
-              </select>
-              <input
-                type="text"
-                value={editingAsset.account_password || ""}
-                onChange={(e) => setEditingAsset({ ...editingAsset, account_password: e.target.value })}
-                placeholder="Account Password"
-                className="rounded-xl bg-black border border-zinc-800 p-2.5 text-xs text-white"
-              />
-              <input
-                type="url"
-                value={editingAsset.profile_link || ""}
-                onChange={(e) => setEditingAsset({ ...editingAsset, profile_link: e.target.value })}
-                placeholder="Profile Link"
-                className="rounded-xl bg-black border border-zinc-800 p-2.5 text-xs text-white"
-              />
-              <input
-                type="text"
-                value={editingAsset.tl_campaign || ""}
-                onChange={(e) => setEditingAsset({ ...editingAsset, tl_campaign: e.target.value, project_name: e.target.value })}
-                placeholder="Campaign Topic"
-                className="rounded-xl bg-black border border-zinc-800 p-2.5 text-xs text-white"
-              />
-              <input
-                type="text"
-                value={editingAsset.tl_task || ""}
-                onChange={(e) => setEditingAsset({ ...editingAsset, tl_task: e.target.value })}
-                placeholder="Campaign Direction / Task"
-                className="rounded-xl bg-black border border-zinc-800 p-2.5 text-xs text-white"
-              />
-            </div>
-
-            <button type="submit" className="w-full py-3 bg-emerald-500 text-black font-bold rounded-xl text-xs">
-              Save Asset Changes Live
-            </button>
-          </form>
-        </div>
-      )}
-
       {/* CREATE NEW SQUAD SMM MODAL */}
       {showCreateSmmModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-4" onClick={() => setShowCreateSmmModal(false)}>
@@ -1019,7 +899,7 @@ export default function TeamLeaderPortal() {
         </div>
       )}
 
-      {/* GIVE / ASSIGN ASSET MODAL WITH COUNTRY & LANGUAGE DROPDOWNS */}
+      {/* GIVE / ASSIGN ASSET MODAL */}
       {showGiveModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-4" onClick={() => setShowGiveModal(false)}>
           <form
@@ -1066,7 +946,7 @@ export default function TeamLeaderPortal() {
         </div>
       )}
 
-      {/* TL SETTINGS DRAWER WITH FANCY MULTI-SELECT */}
+      {/* TL SETTINGS DRAWER */}
       {showSettings && (
         <div className="fixed inset-0 z-50 flex justify-end bg-black/80 backdrop-blur-sm" onClick={() => setShowSettings(false)}>
           <form
