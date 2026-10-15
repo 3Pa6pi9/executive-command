@@ -71,7 +71,7 @@ export default function SMMGatekeeper() {
     <div className="flex min-h-screen flex-col items-center justify-center bg-black px-4 py-6 text-zinc-100 font-sans">
       <div className="w-full max-w-lg my-auto">
         <div className="text-center mb-5">
-          <span className="text-[10px] uppercase tracking-widest bg-purple-500/20 text-purple-300 border border-purple-500/30 px-3 py-1 rounded-full font-bold">Tier 3 — @smm Handler Access</span>
+          <span className="text-[10px] uppercase tracking-widest bg-purple-500/20 text-purple-300 border border-purple-500/30 px-3 py-1 rounded-full font-bold">@smm Handler Access</span>
           <h1 className="text-2xl sm:text-3xl font-bold text-white mt-2.5">SMM Handler Portal</h1>
         </div>
         <div className="rounded-3xl border border-zinc-800 bg-zinc-950 p-5 sm:p-8 shadow-2xl relative overflow-hidden">

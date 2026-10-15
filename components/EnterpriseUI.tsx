@@ -1,7 +1,52 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { PLATFORMS, ALL_COUNTRIES, ASSET_LANGUAGES, computeLive2FACode } from "@/lib/constants";
+import {
+  PLATFORMS,
+  ALL_COUNTRIES,
+  ASSET_LANGUAGES,
+  APP_THEMES,
+  AppThemeId,
+  computeLive2FACode,
+} from "@/lib/constants";
+
+// 5-Option Live Theme Hook & Selector
+export function usePortalTheme() {
+  const [themeId, setThemeId] = useState<AppThemeId>("emerald");
+  useEffect(() => {
+    const saved = localStorage.getItem("portal_theme_v1") as AppThemeId;
+    if (saved && APP_THEMES.some((t) => t.id === saved)) setThemeId(saved);
+  }, []);
+  const changeTheme = (id: AppThemeId) => {
+    setThemeId(id);
+    localStorage.setItem("portal_theme_v1", id);
+  };
+  const currentTheme = APP_THEMES.find((t) => t.id === themeId) || APP_THEMES[0];
+  return { themeId, changeTheme, currentTheme };
+}
+
+export function ThemePickerDropdown({
+  themeId,
+  onChange,
+}: {
+  themeId: AppThemeId;
+  onChange: (id: AppThemeId) => void;
+}) {
+  return (
+    <select
+      value={themeId}
+      onChange={(e) => onChange(e.target.value as AppThemeId)}
+      className="rounded-xl bg-zinc-900/90 border border-zinc-800 hover:border-zinc-700 px-3 py-2 text-xs text-zinc-200 font-bold outline-none transition-all cursor-pointer"
+      title="Select Portal Visual Theme"
+    >
+      {APP_THEMES.map((t) => (
+        <option key={t.id} value={t.id}>
+          🎨 {t.name}
+        </option>
+      ))}
+    </select>
+  );
+}
 
 export function FancyMultiSelect({
   label,
@@ -200,7 +245,7 @@ export function SMMSpotlightModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-2xl p-3 sm:p-6 animate-in fade-in duration-300" onClick={onClose}>
       <div
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-5xl bg-gradient-to-b from-zinc-900/95 via-zinc-950 to-black border border-blue-500/60 rounded-3xl p-5 sm:p-7 space-y-6 shadow-[0_0_90px_-10px_rgba(59,130,246,0.5)] max-h-[90vh] overflow-y-auto animate-in zoom-in-95 duration-300"
+        className="w-full max-w-5xl bg-gradient-to-b from-zinc-900/95 via-zinc-950 to-black border border-blue-500/60 rounded-3xl p-5 sm:p-7 space-y-6 shadow-[0_0_95px_-10px_rgba(59,130,246,0.55)] max-h-[90vh] overflow-y-auto animate-in zoom-in-95 duration-300"
       >
         <div className="flex flex-wrap justify-between items-start border-b border-zinc-800 pb-4 gap-4">
           <div>
@@ -210,7 +255,7 @@ export function SMMSpotlightModal({
               </span>
               {tlName && (
                 <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-[10px] font-bold">
-                  🛡 Commander {tlName}
+                  🛡 Team Leader: {tlName}
                 </span>
               )}
               <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${smm.is_locked ? "bg-red-500/20 text-red-400" : "bg-emerald-500/20 text-emerald-400"}`}>
@@ -370,14 +415,14 @@ export function TeamLeaderSpotlightModal({
             <span className="px-3 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-400/40 text-emerald-300 text-[10px] font-bold uppercase tracking-wider">
               🛡️ Team Leader Spotlight Window
             </span>
-            <h2 className="text-2xl sm:text-3xl font-bold text-white mt-2">Commander {tl.full_name}</h2>
+            <h2 className="text-2xl sm:text-3xl font-bold text-white mt-2">Team Leader {tl.full_name}</h2>
             <p className="text-xs text-zinc-400 mt-1">
               🌍 Regions: <b className="text-zinc-200">{tl.country}</b> • 👥 Squad: <b className="text-emerald-400">{tlSmms.length} SMMs</b> • 🗂 Assets: <b className="text-purple-300">{tlAssets.length}</b>
             </p>
           </div>
           <div className="flex items-center gap-2">
             <button type="button" onClick={() => onEditTl(tl)} className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black text-xs font-bold shadow-lg">
-              ✎ Edit TL & Assign SMMs
+              ✎ Edit Team Leader & Assign SMMs
             </button>
             <button type="button" onClick={onClose} className="px-3.5 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-700 text-xs text-zinc-300 font-bold">
               ✕ Close Window
@@ -562,7 +607,7 @@ export function UniversalAssetEditModal({
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-zinc-800">
           <select value={form.team_leader_id || ""} onChange={(e) => setForm({ ...form, team_leader_id: e.target.value })} className="rounded-xl bg-black border border-zinc-800 p-2.5 text-xs text-white">
             <option value="">Select Team Leader</option>
-            {teamLeaders.map((tl) => <option key={tl.id} value={tl.id}>TL: {tl.full_name}</option>)}
+            {teamLeaders.map((tl) => <option key={tl.id} value={tl.id}>Team Leader: {tl.full_name}</option>)}
           </select>
           {canReassignSmm && (
             <select value={form.smm_id || ""} onChange={(e) => setForm({ ...form, smm_id: e.target.value })} className="rounded-xl bg-black border border-zinc-800 p-2.5 text-xs text-white">
@@ -575,7 +620,7 @@ export function UniversalAssetEditModal({
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <input type="text" value={form.tl_task} onChange={(e) => setForm({ ...form, tl_task: e.target.value })} placeholder="Campaign Direction / Objectives" className="rounded-xl bg-black border border-zinc-800 p-2.5 text-xs text-emerald-300" />
-          <input type="text" value={form.tl_comment} onChange={(e) => setForm({ ...form, tl_comment: e.target.value })} placeholder="Commander / Handler Notes" className="rounded-xl bg-black border border-zinc-800 p-2.5 text-xs text-amber-300" />
+          <input type="text" value={form.tl_comment} onChange={(e) => setForm({ ...form, tl_comment: e.target.value })} placeholder="Team Leader / Handler Notes" className="rounded-xl bg-black border border-zinc-800 p-2.5 text-xs text-amber-300" />
         </div>
 
         <div className="flex gap-2 pt-2">
@@ -727,7 +772,7 @@ export function AssetGrowthModal({
             <div onClick={() => copyVal(live2fa, "2FA Code")} className="cursor-pointer bg-zinc-950 border border-zinc-900 p-2.5 rounded-xl"><span className="text-[10px] text-zinc-500 block">5. LIVE 2FA ({totpSec}s)</span><span className="text-amber-300 font-bold">{asset.two_fa_code ? live2fa : "None"}</span></div>
             <div onClick={() => copyVal(asset.phone_number, "Phone")} className="cursor-pointer bg-zinc-950 border border-zinc-900 p-2.5 rounded-xl"><span className="text-[10px] text-zinc-500 block">6. PHONE</span><span className="text-zinc-200">{asset.phone_number || "N/A"}</span></div>
             <div className="bg-zinc-950 border border-zinc-900 p-2.5 rounded-xl"><span className="text-[10px] text-zinc-500 block">7. COUNTRY & LANG</span><span className="text-white">{asset.country_language || "N/A"} • {asset.language || "English"}</span></div>
-            <div className="bg-zinc-950 border border-zinc-900 p-2.5 rounded-xl"><span className="text-[10px] text-zinc-500 block">8. HANDLER & TL</span><span className="text-blue-300">{ownerSmm?.full_name || "Unassigned"}</span>{ownerTl && <span className="text-zinc-500"> ({ownerTl.full_name})</span>}</div>
+            <div className="bg-zinc-950 border border-zinc-900 p-2.5 rounded-xl"><span className="text-[10px] text-zinc-500 block">8. HANDLER & TL</span><span className="text-blue-300">{ownerSmm?.full_name || "Unassigned"}</span>{ownerTl && <span className="text-zinc-500"> (TL: {ownerTl.full_name})</span>}</div>
             <div className="bg-zinc-950 border border-zinc-900 p-2.5 rounded-xl"><span className="text-[10px] text-zinc-500 block">9. CAMPAIGN</span><span className="text-purple-300 font-bold">{asset.project_name || asset.tl_campaign || "General"}</span></div>
           </div>
         </div>
@@ -756,16 +801,22 @@ export function AssetGrowthModal({
   );
 }
 
+// Analytics Graphs + Detailed Contrasting Leaderboard (Team Leaders vs SMMs)
 export function ExecutiveAnalyticsGraphs({
   assets,
   metrics,
+  profiles = [],
   onSelectAsset,
+  onSelectTl,
+  onSelectSmm,
   titlePrefix = "Enterprise",
 }: {
   assets: any[];
   metrics: any[];
   profiles?: any[];
   onSelectAsset?: (asset: any) => void;
+  onSelectTl?: (tl: any) => void;
+  onSelectSmm?: (smm: any) => void;
   titlePrefix?: string;
 }) {
   const assetIdSet = new Set(assets.map((a) => a.id));
@@ -777,15 +828,42 @@ export function ExecutiveAnalyticsGraphs({
   const netFollowers = scopedMetrics.reduce((s, m) => s + (Number(m.followers_gained || 0) - Number(m.followers_lost || 0)), 0);
   const avgEngRate = totalImpr > 0 ? ((totalEng / totalImpr) * 100).toFixed(2) : "0.00";
 
-  const weekMap = new Map<string, { week: string; impr: number; eng: number }>();
-  for (const m of scopedMetrics) {
-    const w = m.week_of || "Unknown";
-    if (!weekMap.has(w)) weekMap.set(w, { week: w, impr: 0, eng: 0 });
-    weekMap.get(w)!.impr += Number(m.impressions || 0);
-    weekMap.get(w)!.eng += Number(m.engagements || 0);
-  }
-  const weeklySeries = Array.from(weekMap.values()).sort((a, b) => a.week.localeCompare(b.week)).slice(-8);
-  const maxWeekImpr = Math.max(100, ...weeklySeries.map((w) => w.impr));
+  // Contrasting Team Leader Leaderboard
+  const tls = profiles.filter((p) => p.role === "team_leader");
+  const smms = profiles.filter((p) => p.role === "smm");
+
+  const tlLeaderboard = tls
+    .map((tl) => {
+      const squadSmms = smms.filter((s) => s.team_leader_id === tl.id || (s.team_leader_ids && s.team_leader_ids.includes(tl.id)));
+      const squadAssets = assets.filter((a) => a.team_leader_id === tl.id || squadSmms.some((s) => s.id === a.smm_id));
+      const logs = scopedMetrics.filter((m) => squadAssets.some((a) => a.id === m.asset_id));
+      const impr = logs.reduce((s, m) => s + Number(m.impressions || 0), 0);
+      const eng = logs.reduce((s, m) => s + Number(m.engagements || 0), 0);
+      const posts = logs.reduce((s, m) => s + Number(m.posts_published || 0), 0);
+      const netFol = logs.reduce((s, m) => s + (Number(m.followers_gained || 0) - Number(m.followers_lost || 0)), 0);
+      const engRate = impr > 0 ? (eng / impr) * 100 : 0;
+      const score = Math.min(100, Math.round(engRate * 8 + Math.min(50, impr / 2500) + Math.min(25, posts / 5)));
+      return { tl, smmCount: squadSmms.length, assetCount: squadAssets.length, impr, eng, posts, netFol, engRate, score };
+    })
+    .sort((a, b) => b.impr - a.impr);
+  const maxTlImpr = Math.max(100, ...tlLeaderboard.map((t) => t.impr));
+
+  // Contrasting SMM Handler Leaderboard
+  const smmLeaderboard = smms
+    .map((smm) => {
+      const myAssets = assets.filter((a) => a.smm_id === smm.id);
+      const logs = scopedMetrics.filter((m) => myAssets.some((a) => a.id === m.asset_id));
+      const impr = logs.reduce((s, m) => s + Number(m.impressions || 0), 0);
+      const eng = logs.reduce((s, m) => s + Number(m.engagements || 0), 0);
+      const posts = logs.reduce((s, m) => s + Number(m.posts_published || 0), 0);
+      const netFol = logs.reduce((s, m) => s + (Number(m.followers_gained || 0) - Number(m.followers_lost || 0)), 0);
+      const engRate = impr > 0 ? (eng / impr) * 100 : 0;
+      const tl = tls.find((t) => t.id === smm.team_leader_id);
+      const score = Math.min(100, Math.round(engRate * 10 + Math.min(50, impr / 1000) + Math.min(25, posts / 3)));
+      return { smm, tlName: tl?.full_name || "Unassigned", assetCount: myAssets.length, impr, eng, posts, netFol, engRate, score };
+    })
+    .sort((a, b) => b.impr - a.impr);
+  const maxSmmImpr = Math.max(100, ...smmLeaderboard.map((s) => s.impr));
 
   const platformStats = PLATFORMS.map((plat) => {
     const platAssets = assets.filter((a) => a.platform === plat);
@@ -804,32 +882,163 @@ export function ExecutiveAnalyticsGraphs({
         <div className="bg-zinc-950 border border-zinc-800 rounded-2xl p-4 font-mono"><span className="text-[10px] text-zinc-500 block">TOTAL POSTS</span><span className="text-xl font-bold text-amber-400">{totalPosts.toLocaleString()}</span></div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-zinc-950 border border-zinc-800 rounded-3xl p-5 space-y-3">
-          <h3 className="text-xs font-bold uppercase text-cyan-400">📈 {titlePrefix} Weekly Trajectory</h3>
-          {weeklySeries.map((w) => (
-            <div key={w.week} className="space-y-1">
-              <div className="flex justify-between text-xs font-mono"><span className="text-white font-bold">{w.week}</span><span className="text-blue-400">{w.impr.toLocaleString()} Impr • {w.eng.toLocaleString()} Eng</span></div>
-              <div className="w-full h-2.5 bg-zinc-900 rounded-full overflow-hidden"><div className="h-full bg-gradient-to-r from-blue-500 to-cyan-400 rounded-full" style={{ width: `${Math.min(100, Math.max(5, Math.round((w.impr / maxWeekImpr) * 100)))}%` }} /></div>
+      {/* Head-to-Head Contrasting Leaderboard: Team Leaders vs SMM Handlers */}
+      {tlLeaderboard.length > 0 && (
+        <div className="bg-zinc-950 border border-emerald-500/30 rounded-3xl p-5 sm:p-6 space-y-4 shadow-xl">
+          <div className="flex flex-wrap justify-between items-center gap-2 border-b border-zinc-800 pb-3">
+            <div>
+              <span className="text-[10px] uppercase tracking-widest bg-emerald-500/20 text-emerald-300 px-2.5 py-0.5 rounded-full font-bold">
+                Contrasting Squad Matrix
+              </span>
+              <h3 className="text-base sm:text-lg font-bold text-white mt-1">
+                🏆 Team Leader Head-to-Head Contrasting Leaderboard (Click Row to Open Spotlight)
+              </h3>
             </div>
-          ))}
-        </div>
+          </div>
 
-        <div className="bg-zinc-950 border border-zinc-800 rounded-3xl p-5 space-y-3">
-          <h3 className="text-xs font-bold uppercase text-purple-400">🌐 Platform Reach Breakdown</h3>
-          {platformStats.map((p) => (
-            <div key={p.platform} className="space-y-1">
-              <div className="flex justify-between text-xs font-mono"><span className="text-white font-bold uppercase">{p.platform} ({p.assetCount} Assets)</span><span className="text-purple-300">{p.impr.toLocaleString()} Impr</span></div>
-              <div className="w-full h-2.5 bg-zinc-900 rounded-full overflow-hidden"><div className="h-full bg-gradient-to-r from-purple-600 to-pink-500 rounded-full" style={{ width: `${Math.min(100, Math.max(5, Math.round((p.impr / maxPlatImpr) * 100)))}%` }} /></div>
-            </div>
-          ))}
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs font-mono text-zinc-300">
+              <thead className="bg-zinc-900/90 text-zinc-400 uppercase">
+                <tr>
+                  <th className="p-3">Rank & Team Leader</th>
+                  <th className="p-3">Squad / Assets</th>
+                  <th className="p-3">Impressions Contrast</th>
+                  <th className="p-3">Engagements & %</th>
+                  <th className="p-3">Net Followers</th>
+                  <th className="p-3">Posts</th>
+                  <th className="p-3 text-right">Overall Score</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-900">
+                {tlLeaderboard.map((row, idx) => {
+                  const barPct = Math.min(100, Math.max(5, Math.round((row.impr / maxTlImpr) * 100)));
+                  return (
+                    <tr
+                      key={row.tl.id}
+                      onClick={() => onSelectTl && onSelectTl(row.tl)}
+                      className="hover:bg-zinc-900/60 cursor-pointer transition-colors"
+                    >
+                      <td className="p-3 font-bold text-white">
+                        <span className="text-emerald-400 mr-2">#{idx + 1}</span>
+                        Team Leader {row.tl.full_name}
+                        <span className="block text-[10px] text-zinc-500">{row.tl.country}</span>
+                      </td>
+                      <td className="p-3 text-zinc-300">
+                        {row.smmCount} SMMs • {row.assetCount} Assets
+                      </td>
+                      <td className="p-3 w-52">
+                        <div className="flex justify-between text-[11px] mb-1">
+                          <span className="text-blue-400 font-bold">{row.impr.toLocaleString()}</span>
+                        </div>
+                        <div className="w-full h-2 bg-zinc-900 rounded-full overflow-hidden">
+                          <div className="h-full bg-gradient-to-r from-emerald-500 to-cyan-400 rounded-full" style={{ width: `${barPct}%` }} />
+                        </div>
+                      </td>
+                      <td className="p-3 text-purple-300">
+                        {row.eng.toLocaleString()} <span className="text-emerald-400">({row.engRate.toFixed(2)}%)</span>
+                      </td>
+                      <td className={`p-3 font-bold ${row.netFol >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                        {row.netFol >= 0 ? `+${row.netFol.toLocaleString()}` : row.netFol.toLocaleString()}
+                      </td>
+                      <td className="p-3 text-amber-300">{row.posts.toLocaleString()}</td>
+                      <td className="p-3 text-right">
+                        <span className="px-2.5 py-1 rounded-lg bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 font-bold">
+                          {row.score}/100
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
+      )}
+
+      {/* Contrasting SMM Handler Leaderboard */}
+      {smmLeaderboard.length > 0 && (
+        <div className="bg-zinc-950 border border-blue-500/30 rounded-3xl p-5 sm:p-6 space-y-4 shadow-xl">
+          <div className="flex flex-wrap justify-between items-center gap-2 border-b border-zinc-800 pb-3">
+            <div>
+              <span className="text-[10px] uppercase tracking-widest bg-blue-500/20 text-blue-300 px-2.5 py-0.5 rounded-full font-bold">
+                Handler Performance Contrast
+              </span>
+              <h3 className="text-base sm:text-lg font-bold text-white mt-1">
+                👤 SMM Handler Contrasting Leaderboard (Click Row to Open Spotlight)
+              </h3>
+            </div>
+          </div>
+
+          <div className="overflow-x-auto max-h-96">
+            <table className="w-full text-left text-xs font-mono text-zinc-300">
+              <thead className="bg-zinc-900/90 text-zinc-400 uppercase sticky top-0">
+                <tr>
+                  <th className="p-3">Rank & SMM Handler</th>
+                  <th className="p-3">Team Leader</th>
+                  <th className="p-3">Assets</th>
+                  <th className="p-3">Impressions Contrast</th>
+                  <th className="p-3">Engagements & %</th>
+                  <th className="p-3">Net Followers</th>
+                  <th className="p-3 text-right">Score</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-900">
+                {smmLeaderboard.map((row, idx) => {
+                  const barPct = Math.min(100, Math.max(5, Math.round((row.impr / maxSmmImpr) * 100)));
+                  return (
+                    <tr
+                      key={row.smm.id}
+                      onClick={() => onSelectSmm && onSelectSmm(row.smm)}
+                      className="hover:bg-zinc-900/60 cursor-pointer transition-colors"
+                    >
+                      <td className="p-3 font-bold text-white">
+                        <span className="text-blue-400 mr-2">#{idx + 1}</span>
+                        {row.smm.full_name}
+                        <span className="block text-[10px] text-zinc-500">{row.smm.country}</span>
+                      </td>
+                      <td className="p-3 text-emerald-300">{row.tlName}</td>
+                      <td className="p-3">{row.assetCount}</td>
+                      <td className="p-3 w-48">
+                        <div className="text-blue-400 font-bold mb-1">{row.impr.toLocaleString()}</div>
+                        <div className="w-full h-2 bg-zinc-900 rounded-full overflow-hidden">
+                          <div className="h-full bg-gradient-to-r from-blue-500 to-purple-500 rounded-full" style={{ width: `${barPct}%` }} />
+                        </div>
+                      </td>
+                      <td className="p-3 text-purple-300">
+                        {row.eng.toLocaleString()} ({row.engRate.toFixed(2)}%)
+                      </td>
+                      <td className={`p-3 font-bold ${row.netFol >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                        {row.netFol >= 0 ? `+${row.netFol.toLocaleString()}` : row.netFol.toLocaleString()}
+                      </td>
+                      <td className="p-3 text-right">
+                        <span className="px-2.5 py-1 rounded-lg bg-blue-500/20 border border-blue-500/40 text-blue-300 font-bold">
+                          {row.score}/100
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Platform Breakdown */}
+      <div className="bg-zinc-950 border border-zinc-800 rounded-3xl p-5 space-y-3">
+        <h3 className="text-xs font-bold uppercase text-purple-400">🌐 {titlePrefix} Platform Reach Breakdown</h3>
+        {platformStats.map((p) => (
+          <div key={p.platform} className="space-y-1">
+            <div className="flex justify-between text-xs font-mono"><span className="text-white font-bold uppercase">{p.platform} ({p.assetCount} Assets)</span><span className="text-purple-300">{p.impr.toLocaleString()} Impr</span></div>
+            <div className="w-full h-2.5 bg-zinc-900 rounded-full overflow-hidden"><div className="h-full bg-gradient-to-r from-purple-600 to-pink-500 rounded-full" style={{ width: `${Math.min(100, Math.max(5, Math.round((p.impr / maxPlatImpr) * 100)))}%` }} /></div>
+          </div>
+        ))}
       </div>
     </div>
   );
 }
 
-// Archives Component with Date & Time Filter + Suspended Asset Tracking
+// Archives Component with Full Blurred Pop-Up Spotlight Modal on Click + CSV Exports
 export function ForensicArchiveVault({
   logs,
   onRestore,
@@ -842,7 +1051,7 @@ export function ForensicArchiveVault({
   const [search, setSearch] = useState("");
   const [startDateTime, setStartDateTime] = useState("");
   const [endDateTime, setEndDateTime] = useState("");
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [spotlightLog, setSpotlightLog] = useState<any>(null);
 
   const filtered = logs.filter((l) => {
     if (typeFilter !== "ALL" && l.entity_type !== typeFilter) return false;
@@ -860,15 +1069,46 @@ export function ForensicArchiveVault({
     return true;
   });
 
+  const exportArchivesCSV = (itemsToExport: any[], filenamePrefix = "Archives_Export") => {
+    const headers = ["Timestamp", "Actor", "Role", "Entity Type", "Action", "Summary", "Snapshot Fields JSON"];
+    const rows = itemsToExport.map((l) =>
+      [
+        `"${l.created_at || ""}"`,
+        `"${l.actor_name || ""}"`,
+        `"${l.actor_role || ""}"`,
+        `"${l.entity_type || ""}"`,
+        `"${l.action || ""}"`,
+        `"${(l.summary || "").replace(/"/g, '""')}"`,
+        `"${JSON.stringify(l.record_snapshot || {}).replace(/"/g, '""')}"`,
+      ].join(",")
+    );
+    const blob = new Blob([[headers.join(","), ...rows].join("\n")], { type: "text/csv;charset=utf-8;" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.setAttribute("download", `${filenamePrefix}_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   return (
     <div className="bg-zinc-950 border border-amber-500/40 rounded-3xl p-4 sm:p-6 space-y-5 shadow-2xl animate-in fade-in duration-300">
       <div className="flex flex-wrap justify-between items-center border-b border-zinc-800 pb-4 gap-3">
         <div>
           <span className="text-[10px] uppercase tracking-widest bg-amber-500/20 text-amber-300 border border-amber-500/30 px-2.5 py-0.5 rounded-full font-bold">
-            Real-Time Forensic Ledger
+            Forensic Activity & Snapshot Ledger
           </span>
-          <h2 className="text-xl sm:text-2xl font-bold text-white mt-1">🗄 Archives ({filtered.length} Events)</h2>
+          <h2 className="text-xl sm:text-2xl font-bold text-white mt-1">
+            🗄 Archives ({filtered.length} Events — Click Any Event to Pop Out Spotlight)
+          </h2>
         </div>
+        <button
+          type="button"
+          onClick={() => exportArchivesCSV(filtered, "Filtered_Archives")}
+          className="px-4 py-2.5 bg-amber-500 hover:bg-amber-400 text-black font-bold rounded-xl text-xs shadow-lg transition-all active:scale-95"
+        >
+          ⬇ Export Archives CSV ({filtered.length})
+        </button>
       </div>
 
       {/* Date & Time Filter Bar */}
@@ -900,38 +1140,105 @@ export function ForensicArchiveVault({
 
       <div className="space-y-2.5 max-h-[65vh] overflow-y-auto pr-1">
         {filtered.map((log) => {
-          const isOpen = expandedId === log.id;
           const snap = log.record_snapshot?.before || log.record_snapshot || {};
           const isSusp = log.action === "SUSPENDED" || snap?.status === "suspended";
 
           return (
-            <div key={log.id} className={`rounded-2xl border transition-all ${isSusp ? "bg-red-950/20 border-red-500/50" : "bg-black/70 border-zinc-900"}`}>
-              <div onClick={() => setExpandedId(isOpen ? null : log.id)} className="cursor-pointer p-3.5 flex flex-wrap justify-between items-center gap-3">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase ${isSusp ? "bg-red-500 text-black" : "bg-emerald-500/20 text-emerald-300"}`}>
-                    {log.entity_type} • {log.action}
-                  </span>
-                  <span className="text-xs font-bold text-white">{log.summary}</span>
-                </div>
-                <div className="flex items-center gap-3 text-xs font-mono">
-                  <span className="text-zinc-400">{log.actor_name} • {log.created_at ? new Date(log.created_at).toLocaleString() : "Live"}</span>
-                  <button type="button" onClick={(e) => { e.stopPropagation(); onRestore(log); }} className="px-2.5 py-1 rounded-lg bg-amber-500/20 text-amber-300 font-bold text-[10px]">♻ Restore</button>
-                </div>
+            <div
+              key={log.id}
+              onClick={() => setSpotlightLog(log)}
+              className={`group cursor-pointer rounded-2xl border p-3.5 sm:p-4 flex flex-wrap justify-between items-center gap-3 transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[0_12px_30px_-10px_rgba(245,158,11,0.35)] ${
+                isSusp ? "bg-red-950/20 border-red-500/50 hover:border-red-400" : "bg-black/70 border-zinc-900 hover:border-amber-500/50"
+              }`}
+            >
+              <div className="flex flex-wrap items-center gap-2.5">
+                <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase ${isSusp ? "bg-red-500 text-black" : "bg-emerald-500/20 text-emerald-300"}`}>
+                  {log.entity_type} • {log.action}
+                </span>
+                <span className="text-xs font-bold text-white group-hover:text-amber-300 transition-colors">{log.summary}</span>
               </div>
-              {isOpen && (
-                <div className="p-4 border-t border-zinc-800 bg-zinc-950 grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs font-mono">
-                  {Object.entries(snap).map(([k, v]) => (
-                    <div key={k} className="bg-black border border-zinc-900 p-2 rounded-xl break-all">
-                      <span className="text-[10px] text-zinc-500 uppercase block">{k}</span>
-                      <span className="text-zinc-200 font-bold">{typeof v === "object" ? JSON.stringify(v) : String(v ?? "—")}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
+              <div className="flex items-center gap-3 text-xs font-mono">
+                <span className="text-zinc-400">{log.actor_name} • {log.created_at ? new Date(log.created_at).toLocaleString() : "Live"}</span>
+                <span className="text-amber-400 font-bold text-[11px]">🔍 Pop Out ↗</span>
+              </div>
             </div>
           );
         })}
       </div>
+
+      {/* BLURRED POP-UP SPOTLIGHT WINDOW FOR ARCHIVE SNAPSHOT */}
+      {spotlightLog && (
+        <div
+          className="fixed inset-0 z-[75] flex items-center justify-center bg-black/85 backdrop-blur-2xl p-3 sm:p-6 animate-in fade-in duration-300"
+          onClick={() => setSpotlightLog(null)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-4xl bg-gradient-to-b from-zinc-900/95 via-zinc-950 to-black border border-amber-500/60 rounded-3xl p-5 sm:p-7 space-y-5 shadow-[0_0_95px_-10px_rgba(245,158,11,0.5)] max-h-[90vh] overflow-y-auto animate-in zoom-in-95 duration-300"
+          >
+            <div className="flex flex-wrap justify-between items-start border-b border-zinc-800 pb-4 gap-3">
+              <div>
+                <span className="px-3 py-0.5 rounded-full bg-amber-500/20 border border-amber-400/40 text-amber-300 text-[10px] font-bold uppercase">
+                  🗄 Archive Forensic Spotlight • {spotlightLog.entity_type} ({spotlightLog.action})
+                </span>
+                <h3 className="text-xl sm:text-2xl font-bold text-white mt-2">{spotlightLog.summary}</h3>
+                <p className="text-xs text-zinc-400 mt-1">
+                  Recorded by <b className="text-amber-300">{spotlightLog.actor_name || "System"}</b> ({spotlightLog.actor_role || "admin"}) on{" "}
+                  <b className="text-white">{spotlightLog.created_at ? new Date(spotlightLog.created_at).toLocaleString() : "Live"}</b>
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => exportArchivesCSV([spotlightLog], `Archive_Snapshot_${spotlightLog.entity_type}`)}
+                  className="px-3.5 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-amber-500/40 text-amber-300 text-xs font-bold"
+                >
+                  ⬇ CSV Snapshot
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onRestore(spotlightLog);
+                    setSpotlightLog(null);
+                  }}
+                  className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-xs font-bold shadow-lg"
+                >
+                  ♻ Restore This State
+                </button>
+                <button type="button" onClick={() => setSpotlightLog(null)} className="px-3.5 py-2 rounded-xl bg-zinc-900 text-xs text-zinc-300 font-bold">
+                  ✕ Close
+                </button>
+              </div>
+            </div>
+
+            <div className="space-y-3 font-mono text-xs">
+              <div className="text-[10px] uppercase font-bold text-amber-400">Complete Stored Record Fields</div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
+                {Object.entries(spotlightLog.record_snapshot?.before || spotlightLog.record_snapshot || {}).map(([k, v]) => (
+                  <div key={k} className="bg-black border border-zinc-800 p-3 rounded-2xl break-all">
+                    <span className="text-[10px] text-zinc-500 uppercase block">{k}</span>
+                    <span className="text-zinc-100 font-bold">{typeof v === "object" ? JSON.stringify(v) : String(v ?? "—")}</span>
+                  </div>
+                ))}
+              </div>
+
+              {spotlightLog.record_snapshot?.after && (
+                <div className="pt-3 border-t border-zinc-800 space-y-2">
+                  <div className="text-[10px] uppercase font-bold text-blue-400">Updated Fields (After Change)</div>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                    {Object.entries(spotlightLog.record_snapshot.after).map(([k, v]) => (
+                      <div key={k} className="bg-blue-950/20 border border-blue-500/40 p-3 rounded-2xl break-all">
+                        <span className="text-[10px] text-blue-300 uppercase block">{k}</span>
+                        <span className="text-white font-bold">{typeof v === "object" ? JSON.stringify(v) : String(v ?? "—")}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1012,7 +1319,7 @@ export function CampaignDispatchWizard({
       {targetMode === "tl" ? (
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
           {matchingTls.map((tl) => (
-            <button type="button" key={tl.id} onClick={() => toggleItem(tl.id, selectedTlIds, setSelectedTlIds)} className={`p-3 rounded-xl border text-left text-xs font-bold ${selectedTlIds.includes(tl.id) ? "bg-blue-600/30 border-blue-400 text-white" : "bg-black border-zinc-800 text-zinc-400"}`}>✓ Commander {tl.full_name}</button>
+            <button type="button" key={tl.id} onClick={() => toggleItem(tl.id, selectedTlIds, setSelectedTlIds)} className={`p-3 rounded-xl border text-left text-xs font-bold ${selectedTlIds.includes(tl.id) ? "bg-blue-600/30 border-blue-400 text-white" : "bg-black border-zinc-800 text-zinc-400"}`}>✓ Team Leader {tl.full_name}</button>
           ))}
         </div>
       ) : (

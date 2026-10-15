@@ -8,32 +8,34 @@ function getAdminClient() {
   });
 }
 
-async function readFallbackLedger(adminSupabase: any): Promise<any[]> {
+async function readJsonSlot(adminSupabase: any, slotId: number): Promise<any[]> {
   try {
-    const { data } = await adminSupabase.from("system_settings").select("motd").eq("id", 999).maybeSingle();
+    const { data } = await adminSupabase.from("system_settings").select("motd").eq("id", slotId).maybeSingle();
     if (data?.motd) return JSON.parse(data.motd);
   } catch {}
   return [];
 }
 
-async function appendFallbackLedger(adminSupabase: any, entry: any) {
+async function writeJsonSlot(adminSupabase: any, slotId: number, arr: any[]) {
   try {
-    const list = await readFallbackLedger(adminSupabase);
-    const updated = [entry, ...list].slice(0, 350);
-    await adminSupabase.from("system_settings").upsert([{ id: 999, daily_target: 0, motd: JSON.stringify(updated) }], { onConflict: "id" });
+    await adminSupabase
+      .from("system_settings")
+      .upsert([{ id: slotId, daily_target: 0, motd: JSON.stringify(arr) }], { onConflict: "id" });
   } catch {}
 }
 
 export async function GET() {
   try {
     const adminSupabase = getAdminClient();
-    const [{ data: dbLogs }, fallbackLogs, { data: profs }, { data: assets }, { data: metrics }] = await Promise.all([
-      adminSupabase.from("audit_logs").select("*").order("created_at", { ascending: false }).limit(800),
-      readFallbackLedger(adminSupabase),
-      adminSupabase.from("profiles").select("*").order("created_at", { ascending: false }),
-      adminSupabase.from("social_assets").select("*").order("created_at", { ascending: false }),
-      adminSupabase.from("weekly_metrics").select("*").order("week_of", { ascending: false }).limit(300),
-    ]);
+    const [{ data: dbLogs }, fallbackLogs, milestones, { data: profs }, { data: assets }, { data: metrics }] =
+      await Promise.all([
+        adminSupabase.from("audit_logs").select("*").order("created_at", { ascending: false }).limit(800),
+        readJsonSlot(adminSupabase, 999),
+        readJsonSlot(adminSupabase, 998),
+        adminSupabase.from("profiles").select("*").order("created_at", { ascending: false }),
+        adminSupabase.from("social_assets").select("*").order("created_at", { ascending: false }),
+        adminSupabase.from("weekly_metrics").select("*").order("week_of", { ascending: false }).limit(300),
+      ]);
 
     const combined: any[] = [...(fallbackLogs || []), ...(dbLogs || [])];
     const seenIds = new Set(combined.map((x) => x.id));
@@ -99,9 +101,9 @@ export async function GET() {
     }
 
     combined.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-    return NextResponse.json({ logs: combined });
+    return NextResponse.json({ logs: combined, milestones: milestones || [] });
   } catch (err: any) {
-    return NextResponse.json({ logs: [], error: err.message }, { status: 200 });
+    return NextResponse.json({ logs: [], milestones: [], error: err.message }, { status: 200 });
   }
 }
 
@@ -126,12 +128,37 @@ export async function POST(request: Request) {
         summary,
         record_snapshot: snapshot || {},
       };
-      await appendFallbackLedger(adminSupabase, entry);
+      const prev = await readJsonSlot(adminSupabase, 999);
+      await writeJsonSlot(adminSupabase, 999, [entry, ...prev].slice(0, 350));
       try {
         const { id, ...dbRow } = entry;
         await adminSupabase.from("audit_logs").insert([dbRow]);
       } catch {}
     };
+
+    // Custom Admin Milestone Creation & Deletion
+    if (entity === "milestone") {
+      const current = await readJsonSlot(adminSupabase, 998);
+      if (action === "create") {
+        const item = {
+          id: `ms-${Date.now()}`,
+          title: payload.title,
+          metric: payload.metric || "engagements",
+          target: Number(payload.target || 5000),
+          icon: payload.icon || "👑",
+          desc: payload.desc || `Reach ${Number(payload.target || 5000).toLocaleString()} ${payload.metric}`,
+        };
+        const next = [item, ...current];
+        await writeJsonSlot(adminSupabase, 998, next);
+        await logAudit("CREATE", "MILESTONE", item.id, `🏆 Created Milestone: ${item.title} (${item.target.toLocaleString()} ${item.metric})`, item);
+        return NextResponse.json({ success: true, milestones: next });
+      }
+      if (action === "delete") {
+        const next = current.filter((m: any) => m.id !== payload.id);
+        await writeJsonSlot(adminSupabase, 998, next);
+        return NextResponse.json({ success: true, milestones: next });
+      }
+    }
 
     if (entity === "campaign" && action === "dispatch") {
       const { platforms, targetMode, targetTlIds, targetSmmIds, topic, direction } = payload;

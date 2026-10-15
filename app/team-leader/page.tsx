@@ -157,7 +157,7 @@ export default function TeamLeaderPortal() {
       body: JSON.stringify({ actorId: tlProfile.id, entity: "profile", action: "update", payload: { targetId: tlProfile.id, full_name: setFullName, country: setCountries.join(", "), platforms: setPlatforms, newPassword } }),
     });
     setNewPassword(""); setShowSettings(false);
-    setStatusMsg("✓ Commander Settings Synced Live!");
+    setStatusMsg("✓ Team Leader Settings Synced Live!");
     await loadSquadData(tlProfile.id);
   };
 
@@ -259,7 +259,7 @@ export default function TeamLeaderPortal() {
       <div className="flex min-h-screen flex-col items-center justify-center bg-black px-4 py-6 text-zinc-100 font-sans">
         <div className="w-full max-w-md">
           <div className="text-center mb-6">
-            <span className="text-[10px] uppercase tracking-widest bg-blue-500/20 text-blue-300 border border-blue-500/30 px-3 py-1 rounded-full font-bold">Tier 2 — @tl Squad Command</span>
+            <span className="text-[10px] uppercase tracking-widest bg-blue-500/20 text-blue-300 border border-blue-500/30 px-3 py-1 rounded-full font-bold">@tl Squad Command</span>
             <h1 className="text-3xl font-bold text-white mt-3">Team Leader Portal</h1>
           </div>
           <form onSubmit={handleTLLogin} className="bg-zinc-950 border border-zinc-800 rounded-3xl p-6 sm:p-8 space-y-4 shadow-2xl">
@@ -287,7 +287,7 @@ export default function TeamLeaderPortal() {
               <span className="text-[10px] uppercase tracking-widest bg-blue-500/20 text-blue-300 border border-blue-500/30 px-2.5 py-0.5 rounded-full font-bold">@tl Squad Command</span>
               <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full border ${liveSyncPulse ? "bg-emerald-500/30 text-emerald-300" : "bg-zinc-900 border-zinc-800 text-emerald-400"}`}>LIVE</span>
             </div>
-            <h1 className="text-xl sm:text-3xl font-bold text-white mt-1.5">Commander {tlProfile.full_name}</h1>
+            <h1 className="text-xl sm:text-3xl font-bold text-white mt-1.5">Team Leader {tlProfile.full_name}</h1>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <button onClick={() => setActiveTab("campaign")} className="px-4 py-2.5 bg-gradient-to-r from-purple-600 to-blue-600 text-white font-bold rounded-xl text-xs shadow-lg">🎯 Give Campaign</button>
@@ -382,7 +382,7 @@ export default function TeamLeaderPortal() {
         )}
 
         {activeTab === "graphs" && (
-          <ExecutiveAnalyticsGraphs assets={squadAssets} metrics={squadMetrics} profiles={[tlProfile, ...squadMembers]} onSelectAsset={(a) => setInspectingAsset(a)} titlePrefix={`Commander ${tlProfile.full_name} Squad`} />
+          <ExecutiveAnalyticsGraphs assets={squadAssets} metrics={squadMetrics} profiles={[tlProfile, ...squadMembers]} onSelectAsset={(a) => setInspectingAsset(a)} titlePrefix={`Team Leader ${tlProfile.full_name} Squad`} />
         )}
 
         {activeTab === "achievements" && (
@@ -487,7 +487,7 @@ export default function TeamLeaderPortal() {
             <FancyMultiSelect label="Platforms" options={PLATFORMS} selected={setPlatforms} onChange={setSetPlatforms} />
             <FancyMultiSelect label="Countries" options={ALL_COUNTRIES} selected={setCountries} onChange={setSetCountries} />
             <input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="New Password (optional)" className="w-full rounded-xl bg-black border border-zinc-800 p-3 text-xs text-white" />
-            <button type="submit" className="w-full py-3 bg-blue-600 text-white font-bold rounded-xl text-xs">Save Commander Settings Live</button>
+            <button type="submit" className="w-full py-3 bg-blue-600 text-white font-bold rounded-xl text-xs">Save Team Leader Settings Live</button>
             <div className="pt-4 border-t border-zinc-800 grid grid-cols-2 gap-2">
               <button type="button" onClick={() => handleBatchSquadLock(true)} className="py-3 bg-red-500/20 text-red-400 font-bold rounded-xl text-xs">🔒 Lock All Squad SMMs</button>
               <button type="button" onClick={() => handleBatchSquadLock(false)} className="py-3 bg-emerald-500/20 text-emerald-400 font-bold rounded-xl text-xs">🔓 Unlock All Squad SMMs</button>
