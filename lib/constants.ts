@@ -25,7 +25,7 @@ export const ASSET_LANGUAGES = [
 ];
 
 export type TimeHorizon = "weekly" | "monthly" | "quarterly" | "yearly";
-export type SheetTabOption = "all" | "twitter" | "facebook" | "instagram" | "tiktok" | "achievements";
+export type SheetTabOption = "all" | "twitter" | "facebook" | "instagram" | "tiktok" | "blog" | "medium" | "achievements";
 
 export type AppThemeId = "emerald" | "cyberpunk" | "gold" | "cobalt" | "crimson";
 
@@ -155,27 +155,79 @@ export function parseBulkRows(rawText: string): string[][] {
     });
 }
 
-// Compute the exact 27-Column Fanpage Umbrella row metrics + WoW deltas
-export function buildUmbrella27Row(curr: any, prev: any | null, asset: any) {
+export function getPeriodBucket(dateStr: string, horizon: TimeHorizon): string {
+  if (!dateStr) return "Unknown";
+  const clean = dateStr.trim();
+  if (horizon === "weekly") return clean;
+  const y = clean.slice(0, 4);
+  const m = parseInt(clean.slice(5, 7) || "1", 10);
+  if (horizon === "monthly") return `${y}-${String(m).padStart(2, "0")}`;
+  if (horizon === "quarterly") return `${y}-Q${Math.ceil(m / 3)}`;
+  return y;
+}
+
+export function aggregateMetricsByHorizon(metrics: any[], horizon: TimeHorizon) {
+  const map = new Map<string, any>();
+  for (const m of metrics) {
+    const period = getPeriodBucket(m.week_of, horizon);
+    const key = `${m.asset_id}__${period}`;
+    if (!map.has(key)) {
+      map.set(key, {
+        id: key,
+        asset_id: m.asset_id,
+        week_of: period,
+        period,
+        horizon,
+        impressions: 0,
+        engagements: 0,
+        likes: 0,
+        shares_reposts: 0,
+        comments: 0,
+        followers_gained: 0,
+        followers_lost: 0,
+        total_followers: 0,
+        posts_published: 0,
+        top_post_impressions: 0,
+        weeks_counted: 0,
+      });
+    }
+    const it = map.get(key);
+    it.impressions += Number(m.impressions || 0);
+    it.engagements += Number(m.engagements || 0);
+    it.likes += Number(m.likes || 0);
+    it.shares_reposts += Number(m.shares_reposts || 0);
+    it.comments += Number(m.comments || 0);
+    it.followers_gained += Number(m.followers_gained || 0);
+    it.followers_lost += Number(m.followers_lost || 0);
+    it.total_followers = Math.max(it.total_followers, Number(m.total_followers || 0));
+    it.posts_published += Number(m.posts_published || 0);
+    it.top_post_impressions = Math.max(it.top_post_impressions, Number(m.top_post_impressions || 0));
+    it.weeks_counted += 1;
+  }
+  return Array.from(map.values());
+}
+
+export function computeRowMetricsAndScores(curr: any, prev: any | null) {
   const impr = Number(curr.impressions || 0);
   const eng = Number(curr.engagements || 0);
   const likes = Number(curr.likes || 0);
   const reposts = Number(curr.shares_reposts || 0);
+  const comments = Number(curr.comments || 0);
   const folGained = Number(curr.followers_gained || 0);
   const folLost = Number(curr.followers_lost || 0);
   const totalFol = Number(curr.total_followers || 0);
   const posts = Number(curr.posts_published || 0);
   const topImpr = Number(curr.top_post_impressions || 0);
+  const days = (curr.weeks_counted || 1) * 7;
 
   const engPct = impr > 0 ? (eng / impr) * 100 : 0;
   const netFol = folGained - folLost;
   const growthPct = totalFol > 0 ? (netFol / totalFol) * 100 : 0;
-  const postsPerDay = posts / 7;
+  const postsPerDay = posts / days;
   const reachEffPct = totalFol > 0 ? (impr / totalFol) * 100 : 0;
   const avgPostImpr = posts > 0 ? impr / posts : 0;
   const topLiftX = avgPostImpr > 0 ? topImpr / avgPostImpr : 0;
 
-  // 0-100 Normalized Component Scores (Engage, Growth, Consistency, Reach, Top, OVERALL)
   const engageScore = Math.min(100, Math.max(0, Math.round(engPct * 15)));
   const growthScore = Math.min(100, Math.max(0, Math.round(50 + growthPct * 2)));
   const consistencyScore = Math.min(100, Math.max(0, Math.round((postsPerDay / 3) * 100)));
@@ -185,39 +237,37 @@ export function buildUmbrella27Row(curr: any, prev: any | null, asset: any) {
     engageScore * 0.25 + growthScore * 0.2 + consistencyScore * 0.2 + reachScore * 0.2 + topScore * 0.15
   );
 
-  // WoW Deltas (Compared to previous week for the same account)
-  let viewsWow = "";
-  let engageWow = "";
-  let folWow = "";
+  let viewsWow = "0.00%";
+  let engageWow = "0.00%";
+  let folWow = "0";
   if (prev) {
     const prevImpr = Number(prev.impressions || 0);
     const prevEng = Number(prev.engagements || 0);
     const prevEngPct = prevImpr > 0 ? (prevEng / prevImpr) * 100 : 0;
     const prevTotalFol = Number(prev.total_followers || 0);
 
-    if (prevImpr > 0) viewsWow = (((impr - prevImpr) / prevImpr) * 100).toFixed(2);
-    engageWow = (engPct - prevEngPct).toFixed(2);
-    folWow = String(totalFol - prevTotalFol);
+    if (prevImpr > 0) viewsWow = `${(((impr - prevImpr) / prevImpr) * 100).toFixed(2)}%`;
+    engageWow = `${(engPct - prevEngPct).toFixed(2)}%`;
+    const fDelta = totalFol - prevTotalFol;
+    folWow = fDelta >= 0 ? `+${fDelta}` : String(fDelta);
   }
 
   return {
-    accountName: asset.account_id || "Account",
-    weekOf: curr.week_of || curr.period || "",
-    impressions: impr,
-    engagements: eng,
+    impr,
+    eng,
     likes,
     reposts,
-    followersGained: folGained,
-    followersLost: folLost,
-    totalFollowers: totalFol,
-    postsPublished: posts,
-    topPostImpr: topImpr,
-    profileLink: asset.profile_link || "",
-    engPct: engPct.toFixed(2),
+    comments,
+    folGained,
+    folLost,
+    totalFol,
+    posts,
+    topImpr,
+    engPct: `${engPct.toFixed(2)}%`,
     netFol,
-    growthPct: growthPct.toFixed(2),
+    growthPct: `${growthPct.toFixed(2)}%`,
     postsPerDay: postsPerDay.toFixed(2),
-    reachEffPct: reachEffPct.toFixed(1),
+    reachEffPct: `${reachEffPct.toFixed(1)}%`,
     topLiftX: topLiftX.toFixed(2),
     engageScore,
     growthScore,
@@ -231,14 +281,15 @@ export function buildUmbrella27Row(curr: any, prev: any | null, asset: any) {
   };
 }
 
-// Exact Fanpage Umbrella 27-Column CSV Exporter (+ Achievements Sheet Option)
+// Complete, Clean CSV Exporter (Always includes Team Leader, SMM Handler, Platform, Country, Language, Asset ID + All 24 Metrics)
 export function exportHorizonCSV({
   horizon = "weekly",
   sheetTab = "all",
   metrics,
   assets,
+  profiles = [],
   projectFilter = "All",
-  scopeLabel = "Fanpage_Umbrella",
+  scopeLabel = "Admin_Control_Report",
 }: {
   horizon?: TimeHorizon;
   sheetTab?: SheetTabOption;
@@ -248,15 +299,34 @@ export function exportHorizonCSV({
   projectFilter?: string;
   scopeLabel?: string;
 }) {
-  // Option A: Export the exact "Achievements" sheet format (Date, Platform, Country, Link, views, likes, Comments, Shares)
+  // 1. Achievements Sheet Format (with Team Leader, SMM Handler & Platform included)
   if (sheetTab === "achievements") {
-    const headers = ["Date", "Platform", "Country", "Link", "views", "likes", "Comments", "Shares"];
+    const headers = [
+      "Date / Week",
+      "Team Leader",
+      "SMM Handler",
+      "Platform",
+      "Account Name (Asset ID)",
+      "Country",
+      "Language",
+      "Profile Link",
+      "Views / Impressions",
+      "Likes",
+      "Comments",
+      "Shares / Reposts",
+    ];
     const rows = metrics.map((m) => {
       const a = assets.find((x) => x.id === m.asset_id) || {};
+      const smm = profiles.find((p) => p.id === a.smm_id) || {};
+      const tl = profiles.find((p) => p.id === (a.team_leader_id || smm.team_leader_id)) || {};
       return [
         `"${m.week_of || ""}"`,
-        `"${(a.platform || "Twitter").toUpperCase()}"`,
+        `"${tl.full_name || "Unassigned"}"`,
+        `"${smm.full_name || "SMM Handler"}"`,
+        `"${(a.platform || "").toUpperCase()}"`,
+        `"${a.account_id || ""}"`,
         `"${a.country_language || ""}"`,
+        `"${a.language || "English"}"`,
         `"${a.profile_link || ""}"`,
         m.impressions || 0,
         m.likes || 0,
@@ -267,39 +337,48 @@ export function exportHorizonCSV({
     const blob = new Blob([[headers.join(","), ...rows].join("\n")], { type: "text/csv;charset=utf-8;" });
     const link = document.createElement("a");
     link.href = URL.createObjectURL(blob);
-    link.setAttribute("download", `${scopeLabel}_Achievements_Tab.csv`);
+    link.setAttribute("download", `${scopeLabel}_Achievements_${new Date().toISOString().slice(0, 10)}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
     return;
   }
 
-  // Option B: Exact 27-Column Fanpage Umbrella Weekly Sheet (Twitter(X), Facebook, Instagram, Tiktok, or All)
+  // 2. Full Master Performance CSV Report (Row 1 is strictly clean column headers — no junk merged rows!)
   const headers = [
-    "Account Name",
-    "Week Of",
+    "Horizon",
+    "Period / Week Of",
+    "Team Leader",
+    "SMM Handler",
+    "Platform",
+    "Account Name (Asset ID)",
+    "Status",
+    "Country",
+    "Language",
+    "Campaign",
+    "Profile Link",
     "Impressions",
     "Engagements",
     "Likes",
     "Reposts",
+    "Comments",
     "Followers Gained",
     "Followers Lost",
     "Total Followers",
     "Posts Published",
     "Top Post Impr.",
-    "Profile Link",
     "Engagement %",
     "Net Followers",
     "Growth %",
     "Posts/Day",
     "Reach Eff %",
     "Top Lift x",
-    "Engage",
-    "Growth",
-    "Consistency",
-    "Reach",
-    "Top",
-    "OVERALL",
+    "Engage Score",
+    "Growth Score",
+    "Consistency Score",
+    "Reach Score",
+    "Top Score",
+    "OVERALL Score",
     "Views Δ% WoW",
     "Engage Δ% WoW",
     "Followers Δ WoW",
@@ -311,70 +390,72 @@ export function exportHorizonCSV({
     return true;
   });
 
-  // Sort metrics chronologically per asset so WoW Deltas compute accurately
+  const aggregatedPool = aggregateMetricsByHorizon(metrics, horizon);
   const rows: string[] = [];
+
   for (const asset of scopedAssets) {
-    const assetLogs = metrics
+    const smm = profiles.find((p) => p.id === asset.smm_id) || {};
+    const tl = profiles.find((p) => p.id === (asset.team_leader_id || smm.team_leader_id)) || {};
+
+    const assetLogs = aggregatedPool
       .filter((m) => m.asset_id === asset.id)
       .sort((a, b) => (a.week_of || "").localeCompare(b.week_of || ""));
 
     for (let i = 0; i < assetLogs.length; i++) {
       const curr = assetLogs[i];
       const prev = i > 0 ? assetLogs[i - 1] : null;
-      const r = buildUmbrella27Row(curr, prev, asset);
+      const c = computeRowMetricsAndScores(curr, prev);
+
       rows.push(
         [
-          `"${r.accountName}"`,
-          `"${r.weekOf}"`,
-          r.impressions,
-          r.engagements,
-          r.likes,
-          r.reposts,
-          r.followersGained,
-          r.followersLost,
-          r.totalFollowers,
-          r.postsPublished,
-          r.topPostImpr,
-          `"${r.profileLink}"`,
-          r.engPct,
-          r.netFol,
-          r.growthPct,
-          r.postsPerDay,
-          r.reachEffPct,
-          r.topLiftX,
-          r.engageScore,
-          r.growthScore,
-          r.consistencyScore,
-          r.reachScore,
-          r.topScore,
-          r.overallScore,
-          r.viewsWow,
-          r.engageWow,
-          r.folWow,
+          `"${horizon.toUpperCase()}"`,
+          `"${curr.week_of || ""}"`,
+          `"${tl.full_name || "Unassigned"}"`,
+          `"${smm.full_name || "SMM Handler"}"`,
+          `"${(asset.platform || "").toUpperCase()}"`,
+          `"${asset.account_id || ""}"`,
+          `"${(asset.status || "active").toUpperCase()}"`,
+          `"${asset.country_language || "Global"}"`,
+          `"${asset.language || "English"}"`,
+          `"${asset.project_name || asset.tl_campaign || "General Campaign"}"`,
+          `"${asset.profile_link || ""}"`,
+          c.impr,
+          c.eng,
+          c.likes,
+          c.reposts,
+          c.comments,
+          c.folGained,
+          c.folLost,
+          c.totalFol,
+          c.posts,
+          c.topImpr,
+          `"${c.engPct}"`,
+          c.netFol,
+          `"${c.growthPct}"`,
+          c.postsPerDay,
+          `"${c.reachEffPct}"`,
+          c.topLiftX,
+          c.engageScore,
+          c.growthScore,
+          c.consistencyScore,
+          c.reachScore,
+          c.topScore,
+          c.overallScore,
+          `"${c.viewsWow}"`,
+          `"${c.engageWow}"`,
+          `"${c.folWow}"`,
         ].join(",")
       );
     }
   }
 
-  const tabTitle =
-    sheetTab === "twitter"
-      ? "Twitter(X)"
-      : sheetTab === "facebook"
-      ? "Facebook"
-      : sheetTab === "instagram"
-      ? "Instagram"
-      : sheetTab === "tiktok"
-      ? "Tiktok"
-      : "All_Platforms";
-
-  const bannerRow1 = `"${tabTitle} — Weekly Data Entry (${horizon.toUpperCase()})"`;
-  const bannerRow2 = `"Fill YELLOW columns only. Grey = auto-calculated. One row per account per week."`;
-  const csvContent = [bannerRow1, bannerRow2, headers.join(","), ...rows].join("\n");
+  const platLabel = sheetTab === "all" ? "All_Platforms" : sheetTab.toUpperCase();
+  const csvContent = [headers.join(","), ...rows].join("\n");
 
   const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
   const link = document.createElement("a");
   link.href = URL.createObjectURL(blob);
-  link.setAttribute("download", `Handlers_Fanpage_Umbrella_${tabTitle}_${horizon.toUpperCase()}.csv`);
+  link.setAttribute("download", `${scopeLabel}_${platLabel}_${horizon.toUpperCase()}_${new Date().toISOString().slice(0, 10)}.csv`);
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);

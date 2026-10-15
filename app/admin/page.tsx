@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { adminSupabase as supabase } from "@/lib/supabase";
 import Link from "next/link";
 import {
@@ -16,6 +16,9 @@ import {
 import {
   usePortalTheme,
   ThemePickerDropdown,
+  useRealtimePresence,
+  LiveOnlineRosterPill,
+  GlobalCommandPalette,
   AssetGrowthModal,
   UniversalAssetEditModal,
   TeamLeaderSpotlightModal,
@@ -43,20 +46,23 @@ export default function AdminControlCenter() {
   const [customMilestones, setCustomMilestones] = useState<any[]>([]);
   const [statusMsg, setStatusMsg] = useState("");
 
+  // Live 169-User Presence Tracking
+  const { onlineUsers, onlineIds } = useRealtimePresence(supabase, adminProfile);
+
   const [activeTab, setActiveTab] = useState<
     "tls" | "smms" | "assets" | "campaign" | "graphs" | "archives" | "achievements"
   >("tls");
 
-  // Clean Executive Export & Action Popover
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [projectFilter, setProjectFilter] = useState<string>("All");
   const [searchQuery, setSearchQuery] = useState("");
   const [csvHorizon, setCsvHorizon] = useState<TimeHorizon>("weekly");
   const [csvSheetTab, setCsvSheetTab] = useState<SheetTabOption>("all");
 
-  // SMMs & Assets Dedicated Platform (SM) & Country Filters
+  // SMMs & Assets Dedicated Platform, Country & Weekly Compliance Filters
   const [smmPlatformFilter, setSmmPlatformFilter] = useState<string>("all");
   const [smmCountryFilter, setSmmCountryFilter] = useState<string>("all");
+  const [smmComplianceFilter, setSmmComplianceFilter] = useState<"all" | "online" | "logged" | "missing">("all");
   const [assetPlatformFilter, setAssetPlatformFilter] = useState<string>("all");
   const [assetCountryFilter, setAssetCountryFilter] = useState<string>("all");
 
@@ -96,6 +102,8 @@ export default function AdminControlCenter() {
   const [msTarget, setMsTarget] = useState("10000");
   const [msIcon, setMsIcon] = useState("👑");
 
+  const debounceRef = useRef<any>(null);
+
   const loadAllEnterpriseData = useCallback(async () => {
     const [pList, aList, mList, auditRes] = await Promise.all([
       fetchAllRows(supabase, "profiles", "created_at"),
@@ -110,19 +118,32 @@ export default function AdminControlCenter() {
     setCustomMilestones(auditRes.milestones || []);
   }, []);
 
+  // Debounced reload so 169 concurrent users never cause a fetch storm
+  const triggerDebouncedReload = useCallback(() => {
+    setLiveSyncPulse(true);
+    setTimeout(() => setLiveSyncPulse(false), 1000);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      loadAllEnterpriseData();
+    }, 650);
+  }, [loadAllEnterpriseData]);
+
   useEffect(() => {
     let channel: any;
     verifyAdminSession().then((ok) => {
       if (!ok) return;
       channel = supabase
         .channel("admin-realtime-sync")
-        .on("postgres_changes", { event: "*", schema: "public", table: "profiles" }, () => { setLiveSyncPulse(true); setTimeout(() => setLiveSyncPulse(false), 1200); loadAllEnterpriseData(); })
-        .on("postgres_changes", { event: "*", schema: "public", table: "social_assets" }, () => { setLiveSyncPulse(true); setTimeout(() => setLiveSyncPulse(false), 1200); loadAllEnterpriseData(); })
-        .on("postgres_changes", { event: "*", schema: "public", table: "weekly_metrics" }, () => { setLiveSyncPulse(true); setTimeout(() => setLiveSyncPulse(false), 1200); loadAllEnterpriseData(); })
+        .on("postgres_changes", { event: "*", schema: "public", table: "profiles" }, triggerDebouncedReload)
+        .on("postgres_changes", { event: "*", schema: "public", table: "social_assets" }, triggerDebouncedReload)
+        .on("postgres_changes", { event: "*", schema: "public", table: "weekly_metrics" }, triggerDebouncedReload)
         .subscribe();
     });
-    return () => { if (channel) supabase.removeChannel(channel); };
-  }, [loadAllEnterpriseData]);
+    return () => {
+      if (channel) supabase.removeChannel(channel);
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [triggerDebouncedReload]);
 
   const verifyAdminSession = async () => {
     const { data: { session } } = await supabase.auth.getSession();
@@ -337,7 +358,16 @@ export default function AdminControlCenter() {
   };
 
   if (isCheckingAuth) {
-    return <div className="flex min-h-screen items-center justify-center bg-black text-emerald-400 font-mono text-sm animate-pulse">Initializing Admin Control Center...</div>;
+    return (
+      <div className="min-h-screen bg-black p-8 space-y-6 animate-pulse">
+        <div className="h-14 w-full max-w-md bg-zinc-900 rounded-2xl" />
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+          {[1, 2, 3, 4, 5, 6].map((n) => (
+            <div key={n} className="h-44 bg-zinc-950 border border-zinc-900 rounded-3xl" />
+          ))}
+        </div>
+      </div>
+    );
   }
 
   if (!adminProfile) {
@@ -367,7 +397,14 @@ export default function AdminControlCenter() {
   const q = searchQuery.toLowerCase().trim();
   const globalAchievements = computeAchievements(filteredAssets, metrics, customMilestones);
 
-  // Filtered SMMs by SM Platform & Country
+  // Check if an SMM has logged metrics within the last 7 days
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString().slice(0, 10);
+  const hasLoggedRecent = (smmId: string) => {
+    const sAssetIds = assets.filter((a) => a.smm_id === smmId).map((a) => a.id);
+    return metrics.some((m) => sAssetIds.includes(m.asset_id) && (m.week_of || "") >= sevenDaysAgo);
+  };
+
+  // Filtered SMMs by SM Platform, Country & Weekly Compliance / Online State
   const visibleSmms = allSmms.filter((s) => {
     if (q && !(s.full_name || "").toLowerCase().includes(q) && !(s.country || "").toLowerCase().includes(q)) return false;
     if (smmPlatformFilter !== "all") {
@@ -376,6 +413,9 @@ export default function AdminControlCenter() {
       if (!sPlats.includes(smmPlatformFilter) && !sAssetPlats.includes(smmPlatformFilter)) return false;
     }
     if (smmCountryFilter !== "all" && !(s.country || "").toLowerCase().includes(smmCountryFilter.toLowerCase())) return false;
+    if (smmComplianceFilter === "online" && !onlineIds.has(s.id)) return false;
+    if (smmComplianceFilter === "logged" && !hasLoggedRecent(s.id)) return false;
+    if (smmComplianceFilter === "missing" && hasLoggedRecent(s.id)) return false;
     return true;
   });
 
@@ -393,25 +433,39 @@ export default function AdminControlCenter() {
   return (
     <div className={`min-h-screen ${currentTheme.shellBg} p-3 sm:p-6 md:p-8 pb-28 md:pb-12 font-sans transition-colors duration-500`}>
       <div className="max-w-7xl mx-auto space-y-5">
-        {/* Clean, Authoritative Admin Control Center Header (No Cluttered Button Mess) */}
+        {/* Clean, Authoritative Admin Control Center Header */}
         <div className="flex flex-col lg:flex-row lg:justify-between lg:items-center border-b border-zinc-800/90 pb-5 gap-4">
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <span className={`text-[10px] uppercase tracking-widest border px-2.5 py-0.5 rounded-full font-bold ${currentTheme.badge}`}>
                 Admin Control Center
               </span>
-              <span className={`text-[10px] font-mono px-2.5 py-0.5 rounded-full border ${liveSyncPulse ? "bg-emerald-500/30 text-emerald-300" : "bg-zinc-900 border-zinc-800 text-emerald-400"}`}>
-                ● LIVE SYNC
+              <LiveOnlineRosterPill
+                onlineUsers={onlineUsers}
+                profiles={profiles}
+                onSelectTl={(tl) => setSpotlightTl(tl)}
+                onSelectSmm={(smm) => setSpotlightSmm(smm)}
+              />
+              <span className={`text-[10px] font-mono px-2.5 py-0.5 rounded-full border ${liveSyncPulse ? "bg-emerald-500/30 text-emerald-300" : "bg-zinc-900 border-zinc-800 text-zinc-400"}`}>
+                ⚡ 169-USER STREAM READY
               </span>
             </div>
-            <h1 className="text-2xl sm:text-3xl font-bold text-white mt-1.5 tracking-tight">Admin Control Center</h1>
+            <h1 className="text-2xl sm:text-3xl font-bold text-white mt-2 tracking-tight">Admin Control Center</h1>
             <p className="text-xs text-zinc-400 mt-0.5">
               Team Leaders: <b className="text-white">{teamLeaders.length}</b> • SMM Handlers: <b className="text-white">{allSmms.length}</b> • Social Media Assets: <b className="text-white">{filteredAssets.length}</b>
             </p>
           </div>
 
           {/* Sleek Consolidated Command Bar */}
-          <div className="flex flex-wrap items-center gap-2.5">
+          <div className="flex flex-wrap items-center gap-2">
+            <GlobalCommandPalette
+              profiles={profiles}
+              assets={assets}
+              onSelectTl={(tl) => setSpotlightTl(tl)}
+              onSelectSmm={(smm) => setSpotlightSmm(smm)}
+              onSelectAsset={(a) => setInspectingAsset(a)}
+            />
+
             <ThemePickerDropdown themeId={themeId} onChange={changeTheme} />
 
             <button
@@ -428,20 +482,19 @@ export default function AdminControlCenter() {
               + New User
             </button>
 
-            {/* Clean Consolidated Reports & Export Popover */}
             <div className="relative">
               <button
                 type="button"
                 onClick={() => setShowExportMenu(!showExportMenu)}
                 className="px-3.5 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-700 text-xs text-emerald-300 font-bold flex items-center gap-1.5"
               >
-                <span>📊 Fanpage CSV Report</span>
+                <span>⬇ Export CSV</span>
                 <span className="text-[10px]">▼</span>
               </button>
               {showExportMenu && (
                 <div className="absolute right-0 mt-2 w-72 bg-zinc-950 border border-zinc-700 rounded-2xl p-4 shadow-2xl space-y-3 z-50 animate-in fade-in zoom-in-95 duration-200">
                   <div className="text-xs font-bold text-white border-b border-zinc-800 pb-2">
-                    ⬇ Fanpage Umbrella 27-Column CSV
+                    ⬇ Export Master CSV Report
                   </div>
                   <div>
                     <label className="text-[10px] uppercase font-bold text-zinc-400 block mb-1">1. Sheet Tab</label>
@@ -478,7 +531,7 @@ export default function AdminControlCenter() {
                     }}
                     className={`w-full py-2.5 rounded-xl font-bold text-xs ${currentTheme.accentBg}`}
                   >
-                    ⬇ Download 27-Column CSV
+                    ⬇ Download Master CSV
                   </button>
                 </div>
               )}
@@ -522,34 +575,45 @@ export default function AdminControlCenter() {
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search Team Leaders, SMMs, Assets..."
-            className="rounded-xl bg-black border border-zinc-800 px-3 py-1.5 text-xs text-white outline-none focus:border-emerald-500 w-56"
+            placeholder="Filter current view..."
+            className="rounded-xl bg-black border border-zinc-800 px-3 py-1.5 text-xs text-white outline-none focus:border-emerald-500 w-52"
           />
         </div>
 
-        {/* TAB 1: TEAM LEADERS */}
+        {/* TAB 1: TEAM LEADERS (WITH LIVE ONLINE BADGES) */}
         {activeTab === "tls" && (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 animate-in fade-in duration-300">
             {teamLeaders
               .filter((tl) => !q || (tl.full_name || "").toLowerCase().includes(q) || (tl.country || "").toLowerCase().includes(q))
               .map((tl) => {
                 const tlSmms = allSmms.filter((s) => s.team_leader_id === tl.id || (s.team_leader_ids && s.team_leader_ids.includes(tl.id)));
+                const onlineSquadCount = tlSmms.filter((s) => onlineIds.has(s.id)).length;
                 const tlAssets = filteredAssets.filter((a) => a.team_leader_id === tl.id || tlSmms.some((s) => s.id === a.smm_id));
                 const tlLogs = metrics.filter((m) => tlAssets.some((a) => a.id === m.asset_id));
                 const impr = tlLogs.reduce((sum, x) => sum + (x.impressions || 0), 0);
+                const isTlOnline = onlineIds.has(tl.id);
 
                 return (
                   <div
                     key={tl.id}
                     onClick={() => setSpotlightTl(tl)}
-                    className={`group cursor-pointer rounded-3xl p-6 bg-gradient-to-b from-zinc-900/70 via-zinc-950 to-black border border-zinc-800 hover:${currentTheme.cardBorder} transition-all duration-300 hover:-translate-y-2 ${currentTheme.glow} space-y-4`}
+                    className={`group cursor-pointer rounded-3xl p-6 bg-gradient-to-b from-zinc-900/70 via-zinc-950 to-black border transition-all duration-300 hover:-translate-y-2 ${currentTheme.glow} space-y-4 ${
+                      isTlOnline ? "border-emerald-500/60" : "border-zinc-800"
+                    }`}
                   >
                     <div className="flex justify-between items-start">
                       <div>
-                        <span className={`text-[10px] uppercase tracking-widest px-2.5 py-0.5 rounded-full border font-bold ${currentTheme.badge}`}>
-                          🛡 Team Leader
-                        </span>
-                        <h3 className="font-bold text-xl text-white mt-2">Team Leader {tl.full_name}</h3>
+                        <div className="flex items-center gap-2">
+                          <span className={`text-[10px] uppercase tracking-widest px-2.5 py-0.5 rounded-full border font-bold ${currentTheme.badge}`}>
+                            🛡 Team Leader
+                          </span>
+                          {isTlOnline && (
+                            <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-bold">
+                              🟢 ONLINE
+                            </span>
+                          )}
+                        </div>
+                        <h3 className="font-bold text-xl text-white mt-2">{tl.full_name}</h3>
                         <p className="text-xs text-zinc-400 mt-0.5">🌍 {tl.country}</p>
                       </div>
                       <button
@@ -562,7 +626,12 @@ export default function AdminControlCenter() {
                     </div>
 
                     <div className="grid grid-cols-3 gap-2 p-3.5 rounded-2xl bg-black/80 border border-zinc-900 font-mono text-xs">
-                      <div><span className="text-[9px] text-zinc-500 block">SMM SQUAD</span><span className="text-emerald-400 font-bold text-base">{tlSmms.length}</span></div>
+                      <div>
+                        <span className="text-[9px] text-zinc-500 block">SMM SQUAD</span>
+                        <span className="text-emerald-400 font-bold text-base">
+                          {tlSmms.length} <span className="text-[10px] text-zinc-400">({onlineSquadCount}🟢)</span>
+                        </span>
+                      </div>
                       <div><span className="text-[9px] text-zinc-500 block">ASSETS</span><span className="text-purple-400 font-bold text-base">{tlAssets.length}</span></div>
                       <div><span className="text-[9px] text-zinc-500 block">IMPR</span><span className="text-blue-400 font-bold text-base">{impr.toLocaleString()}</span></div>
                     </div>
@@ -577,39 +646,67 @@ export default function AdminControlCenter() {
           </div>
         )}
 
-        {/* TAB 2: SMMs WITH DEDICATED SOCIAL MEDIA (SM) & COUNTRY FILTER BAR */}
+        {/* TAB 2: SMMs WITH SM FILTER, COUNTRY FILTER & WEEKLY COMPLIANCE FILTER */}
         {activeTab === "smms" && (
           <div className="space-y-4 animate-in fade-in duration-300">
-            {/* SMM Filter Matrix by Social Media & Country */}
-            <div className="bg-zinc-950 border border-zinc-800 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-[10px] uppercase font-bold text-zinc-400 mr-1">Filter SMMs by SM:</span>
-                {["all", ...PLATFORMS].map((p) => (
-                  <button
-                    key={p}
-                    type="button"
-                    onClick={() => setSmmPlatformFilter(p)}
-                    className={`px-2.5 py-1 rounded-lg text-xs font-bold uppercase border transition-all ${
-                      smmPlatformFilter === p ? `${currentTheme.accentBg} border-transparent` : "bg-black border-zinc-800 text-zinc-400 hover:text-white"
-                    }`}
+            <div className="bg-zinc-950 border border-zinc-800 rounded-2xl p-4 space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-[10px] uppercase font-bold text-zinc-400 mr-1">1. Filter by SM:</span>
+                  {["all", ...PLATFORMS].map((p) => (
+                    <button
+                      key={p}
+                      type="button"
+                      onClick={() => setSmmPlatformFilter(p)}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-bold uppercase border transition-all ${
+                        smmPlatformFilter === p ? `${currentTheme.accentBg} border-transparent` : "bg-black border-zinc-800 text-zinc-400 hover:text-white"
+                      }`}
+                    >
+                      {p === "all" ? "All SMs" : p}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-[10px] uppercase font-bold text-zinc-400">2. Country:</span>
+                  <select
+                    value={smmCountryFilter}
+                    onChange={(e) => setSmmCountryFilter(e.target.value)}
+                    className="rounded-xl bg-black border border-zinc-800 px-3 py-1.5 text-xs text-white outline-none"
                   >
-                    {p === "all" ? "All SMs" : p}
-                  </button>
-                ))}
+                    <option value="all">All Countries ({allSmms.length})</option>
+                    {ALL_COUNTRIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
               </div>
 
-              <div className="flex items-center gap-2">
-                <span className="text-[10px] uppercase font-bold text-zinc-400">Filter by Country:</span>
-                <select
-                  value={smmCountryFilter}
-                  onChange={(e) => setSmmCountryFilter(e.target.value)}
-                  className="rounded-xl bg-black border border-zinc-800 px-3 py-1.5 text-xs text-white outline-none"
-                >
-                  <option value="all">All Countries ({allSmms.length})</option>
-                  {ALL_COUNTRIES.map((c) => <option key={c} value={c}>{c}</option>)}
-                </select>
-                <button type="button" onClick={() => handleGlobalBatchLock(true)} className="px-3 py-1.5 rounded-xl bg-red-500/15 text-red-400 border border-red-500/30 text-xs font-bold">🔒 Lock All</button>
-                <button type="button" onClick={() => handleGlobalBatchLock(false)} className="px-3 py-1.5 rounded-xl bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-xs font-bold">🔓 Unlock All</button>
+              {/* Row 2: Live Presence & Friday Report Compliance Filter */}
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-zinc-900">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-[10px] uppercase font-bold text-zinc-400 mr-1">3. Status & Weekly Compliance:</span>
+                  {[
+                    { id: "all", label: `All SMMs (${allSmms.length})` },
+                    { id: "online", label: "🟢 Online Now" },
+                    { id: "logged", label: "✅ Submitted This Week" },
+                    { id: "missing", label: "⏳ Missing Weekly Report" },
+                  ].map((f: any) => (
+                    <button
+                      key={f.id}
+                      type="button"
+                      onClick={() => setSmmComplianceFilter(f.id)}
+                      className={`px-3 py-1 rounded-lg text-xs font-bold border transition-all ${
+                        smmComplianceFilter === f.id ? "bg-blue-600 text-white border-blue-400" : "bg-black border-zinc-800 text-zinc-400 hover:text-white"
+                      }`}
+                    >
+                      {f.label}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="flex gap-2">
+                  <button type="button" onClick={() => handleGlobalBatchLock(true)} className="px-3 py-1.5 rounded-xl bg-red-500/15 text-red-400 border border-red-500/30 text-xs font-bold">🔒 Lock All</button>
+                  <button type="button" onClick={() => handleGlobalBatchLock(false)} className="px-3 py-1.5 rounded-xl bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-xs font-bold">🔓 Unlock All</button>
+                </div>
               </div>
             </div>
 
@@ -620,23 +717,36 @@ export default function AdminControlCenter() {
                 const totalImpr = smmLogs.reduce((s, x) => s + Number(x.impressions || 0), 0);
                 const totalEng = smmLogs.reduce((s, x) => s + Number(x.engagements || 0), 0);
                 const tl = teamLeaders.find((t) => t.id === smm.team_leader_id);
+                const isOnline = onlineIds.has(smm.id);
+                const loggedThisWeek = hasLoggedRecent(smm.id);
 
                 return (
                   <div
                     key={smm.id}
                     onClick={() => setSpotlightSmm(smm)}
-                    className="group cursor-pointer rounded-3xl p-6 bg-gradient-to-b from-zinc-900/70 via-zinc-950 to-black border border-zinc-800 hover:border-blue-400 transition-all duration-300 hover:-translate-y-2 shadow-xl space-y-4"
+                    className={`group cursor-pointer rounded-3xl p-6 bg-gradient-to-b from-zinc-900/70 via-zinc-950 to-black border transition-all duration-300 hover:-translate-y-2 shadow-xl space-y-4 ${
+                      isOnline ? "border-emerald-500/50" : "border-zinc-800 hover:border-blue-400"
+                    }`}
                   >
                     <div className="flex justify-between items-start gap-2">
                       <div>
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-[10px] uppercase px-2.5 py-0.5 rounded-full bg-blue-500/15 border border-blue-500/30 text-blue-300 font-bold">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="text-[10px] uppercase px-2 py-0.5 rounded-full bg-blue-500/15 border border-blue-500/30 text-blue-300 font-bold">
                             👤 SMM
                           </span>
-                          {tl && <span className="text-[10px] px-2 py-0.5 rounded-full bg-zinc-900 text-emerald-300 font-bold">TL: {tl.full_name}</span>}
+                          {isOnline && (
+                            <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-bold">
+                              🟢 ONLINE
+                            </span>
+                          )}
+                          <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${loggedThisWeek ? "bg-emerald-500/15 text-emerald-300" : "bg-amber-500/15 text-amber-300"}`}>
+                            {loggedThisWeek ? "✅ Reported" : "⏳ Pending"}
+                          </span>
                         </div>
                         <h3 className="text-xl font-bold text-white mt-2">{smm.full_name}</h3>
-                        <p className="text-xs text-zinc-400 mt-0.5">🌍 {smm.country}</p>
+                        <p className="text-xs text-zinc-400 mt-0.5">
+                          🌍 {smm.country} {tl ? `• TL: ${tl.full_name}` : ""}
+                        </p>
                       </div>
 
                       <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
@@ -670,7 +780,7 @@ export default function AdminControlCenter() {
           </div>
         )}
 
-        {/* TAB 3: ASSETS WITH DEDICATED SOCIAL MEDIA (SM) & COUNTRY FILTER BAR */}
+        {/* TAB 3: ASSETS */}
         {activeTab === "assets" && (
           <div className="space-y-4 animate-in fade-in duration-300">
             <div className="bg-zinc-950 border border-zinc-800 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3">
@@ -760,7 +870,7 @@ export default function AdminControlCenter() {
           />
         )}
 
-        {/* TAB 6: ARCHIVES (CLICK ANY EVENT FOR BLURRED SPOTLIGHT MODAL + CSV EXPORT) */}
+        {/* TAB 6: ARCHIVES */}
         {activeTab === "archives" && (
           <ForensicArchiveVault logs={auditLogs} onRestore={handleRestoreArchive} />
         )}
@@ -910,7 +1020,7 @@ export default function AdminControlCenter() {
             )}
             {editingEmployee.role === "smm" && (
               <>
-                <FancyEntityMultiSelect label="Assigned Team Leader(s)" items={teamLeaders.map((tl) => ({ id: tl.id, label: `Team Leader ${tl.full_name}`, sub: tl.country }))} selectedIds={empTlIds} onChange={setEmpTlIds} />
+                <FancyEntityMultiSelect label="Assigned Team Leader(s)" items={teamLeaders.map((tl) => ({ id: tl.id, label: tl.full_name, sub: tl.country }))} selectedIds={empTlIds} onChange={setEmpTlIds} />
                 <FancyEntityMultiSelect label="Social Media Assets Assigned" items={assets.map((a) => ({ id: a.id, label: `[${(a.platform || "").toUpperCase()}] ${a.account_id}`, sub: a.country_language }))} selectedIds={empAssignedAssetIds} onChange={setEmpAssignedAssetIds} />
               </>
             )}

@@ -415,7 +415,7 @@ export function TeamLeaderSpotlightModal({
             <span className="px-3 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-400/40 text-emerald-300 text-[10px] font-bold uppercase tracking-wider">
               🛡️ Team Leader Spotlight Window
             </span>
-            <h2 className="text-2xl sm:text-3xl font-bold text-white mt-2">Team Leader {tl.full_name}</h2>
+            <h2 className="text-2xl sm:text-3xl font-bold text-white mt-2">{tl.full_name}</h2>
             <p className="text-xs text-zinc-400 mt-1">
               🌍 Regions: <b className="text-zinc-200">{tl.country}</b> • 👥 Squad: <b className="text-emerald-400">{tlSmms.length} SMMs</b> • 🗂 Assets: <b className="text-purple-300">{tlAssets.length}</b>
             </p>
@@ -920,7 +920,7 @@ export function ExecutiveAnalyticsGraphs({
                     >
                       <td className="p-3 font-bold text-white">
                         <span className="text-emerald-400 mr-2">#{idx + 1}</span>
-                        Team Leader {row.tl.full_name}
+                        {row.tl.full_name}
                         <span className="block text-[10px] text-zinc-500">{row.tl.country}</span>
                       </td>
                       <td className="p-3 text-zinc-300">
@@ -1319,7 +1319,7 @@ export function CampaignDispatchWizard({
       {targetMode === "tl" ? (
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
           {matchingTls.map((tl) => (
-            <button type="button" key={tl.id} onClick={() => toggleItem(tl.id, selectedTlIds, setSelectedTlIds)} className={`p-3 rounded-xl border text-left text-xs font-bold ${selectedTlIds.includes(tl.id) ? "bg-blue-600/30 border-blue-400 text-white" : "bg-black border-zinc-800 text-zinc-400"}`}>✓ Team Leader {tl.full_name}</button>
+            <button type="button" key={tl.id} onClick={() => toggleItem(tl.id, selectedTlIds, setSelectedTlIds)} className={`p-3 rounded-xl border text-left text-xs font-bold ${selectedTlIds.includes(tl.id) ? "bg-blue-600/30 border-blue-400 text-white" : "bg-black border-zinc-800 text-zinc-400"}`}>✓ {tl.full_name}</button>
           ))}
         </div>
       ) : (
@@ -1333,5 +1333,283 @@ export function CampaignDispatchWizard({
       <textarea rows={4} required value={direction} onChange={(e) => setDirection(e.target.value)} placeholder="Direction, Key Points & Objectives..." className="w-full rounded-xl bg-black border border-zinc-800 p-3.5 text-xs text-white" />
       <button type="submit" disabled={submitting} className="w-full py-3.5 bg-gradient-to-r from-purple-600 to-blue-600 text-white font-bold rounded-xl text-sm">🚀 Dispatch Campaign Live</button>
     </form>
+  );
+}
+
+// 10. Real-Time 169-User Presence Hook (Tracks every online Admin, Team Leader & SMM live)
+export function useRealtimePresence(supabaseClient: any, profile: any) {
+  const [onlineUsers, setOnlineUsers] = useState<any[]>([]);
+  const [onlineIds, setOnlineIds] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (!profile?.id) return;
+
+    const channel = supabaseClient.channel("executive-presence-room", {
+      config: { presence: { key: profile.id } },
+    });
+
+    const syncState = () => {
+      const state = channel.presenceState();
+      const list: any[] = [];
+      const ids = new Set<string>();
+      Object.entries(state).forEach(([key, presences]: [string, any]) => {
+        if (Array.isArray(presences) && presences.length > 0) {
+          ids.add(key);
+          list.push(presences[0]);
+        }
+      });
+      setOnlineUsers(list);
+      setOnlineIds(ids);
+    };
+
+    channel
+      .on("presence", { event: "sync" }, syncState)
+      .on("presence", { event: "join" }, syncState)
+      .on("presence", { event: "leave" }, syncState)
+      .subscribe(async (status: string) => {
+        if (status === "SUBSCRIBED") {
+          await channel.track({
+            id: profile.id,
+            full_name: profile.full_name || "User",
+            role: profile.role || "smm",
+            country: profile.country || "Global",
+            online_at: new Date().toISOString(),
+          });
+        }
+      });
+
+    return () => {
+      supabaseClient.removeChannel(channel);
+    };
+  }, [supabaseClient, profile?.id, profile?.full_name, profile?.role, profile?.country]);
+
+  return { onlineUsers, onlineIds };
+}
+
+// 11. Top-Bar Live "Online Now" Pill + Blurred Pop-Up Online Roster Window
+export function LiveOnlineRosterPill({
+  onlineUsers,
+  profiles = [],
+  onSelectTl,
+  onSelectSmm,
+}: {
+  onlineUsers: any[];
+  profiles?: any[];
+  onSelectTl?: (tl: any) => void;
+  onSelectSmm?: (smm: any) => void;
+}) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="px-3 py-1.5 rounded-full bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/40 text-emerald-300 text-[11px] font-mono font-bold flex items-center gap-2 shadow-[0_0_20px_rgba(16,185,129,0.25)] transition-all active:scale-95 cursor-pointer"
+        title="Click to inspect all online Team Leaders & SMMs"
+      >
+        <span className="h-2 w-2 rounded-full bg-emerald-400 animate-ping" />
+        <span>🟢 {onlineUsers.length} Online Now</span>
+      </button>
+
+      {open && (
+        <div
+          className="fixed inset-0 z-[80] flex items-center justify-center bg-black/85 backdrop-blur-2xl p-3 sm:p-6 animate-in fade-in duration-300"
+          onClick={() => setOpen(false)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-3xl bg-gradient-to-b from-zinc-900/95 via-zinc-950 to-black border border-emerald-500/60 rounded-3xl p-5 sm:p-7 space-y-5 shadow-[0_0_90px_-10px_rgba(16,185,129,0.5)] max-h-[88vh] overflow-y-auto animate-in zoom-in-95 duration-300"
+          >
+            <div className="flex justify-between items-start border-b border-zinc-800 pb-4">
+              <div>
+                <span className="px-3 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-400/40 text-emerald-300 text-[10px] font-bold uppercase">
+                  ⚡ Real-Time Active Personnel Telemetry
+                </span>
+                <h3 className="text-2xl font-bold text-white mt-2">
+                  🟢 {onlineUsers.length} Personnel Online Right Now
+                </h3>
+                <p className="text-xs text-zinc-400 mt-0.5">
+                  Click any online Team Leader or SMM Handler below to pop open their Spotlight Window.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setOpen(false)}
+                className="px-3.5 py-1.5 rounded-xl bg-zinc-900 text-xs text-zinc-300 font-bold"
+              >
+                ✕ Close
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+              {onlineUsers.map((u) => {
+                const fullProf = profiles.find((p) => p.id === u.id) || u;
+                return (
+                  <div
+                    key={u.id}
+                    onClick={() => {
+                      setOpen(false);
+                      if (fullProf.role === "team_leader" && onSelectTl) onSelectTl(fullProf);
+                      else if (fullProf.role === "smm" && onSelectSmm) onSelectSmm(fullProf);
+                    }}
+                    className="cursor-pointer p-4 rounded-2xl bg-black/90 border border-zinc-800 hover:border-emerald-400 transition-all hover:-translate-y-1 space-y-1.5"
+                  >
+                    <div className="flex justify-between items-center">
+                      <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300">
+                        {u.role === "team_leader" ? "🛡 Team Leader" : u.role === "admin" ? "👑 Admin" : "👤 SMM"}
+                      </span>
+                      <span className="text-[10px] font-mono text-emerald-400 flex items-center gap-1">
+                        <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" /> LIVE
+                      </span>
+                    </div>
+                    <div className="font-bold text-white text-sm truncate">{u.full_name}</div>
+                    <div className="text-[11px] text-zinc-400 truncate">🌍 {u.country}</div>
+                  </div>
+                );
+              })}
+              {onlineUsers.length === 0 && (
+                <div className="col-span-3 text-center py-8 text-xs text-zinc-500">
+                  Connecting to live presence stream...
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+// 12. Global Ctrl+K / Cmd+K Quick-Jump Spotlight Search Palette
+export function GlobalCommandPalette({
+  profiles = [],
+  assets = [],
+  onSelectTl,
+  onSelectSmm,
+  onSelectAsset,
+}: {
+  profiles: any[];
+  assets: any[];
+  onSelectTl: (tl: any) => void;
+  onSelectSmm: (smm: any) => void;
+  onSelectAsset: (asset: any) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState("");
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setOpen((prev) => !prev);
+      } else if (e.key === "Escape") {
+        setOpen(false);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  const clean = q.toLowerCase().trim();
+  const matchedTls = profiles
+    .filter((p) => p.role === "team_leader" && (!clean || (p.full_name || "").toLowerCase().includes(clean) || (p.country || "").toLowerCase().includes(clean)))
+    .slice(0, 5);
+  const matchedSmms = profiles
+    .filter((p) => p.role === "smm" && (!clean || (p.full_name || "").toLowerCase().includes(clean) || (p.country || "").toLowerCase().includes(clean)))
+    .slice(0, 6);
+  const matchedAssets = assets
+    .filter((a) => !clean || (a.account_id || "").toLowerCase().includes(clean) || (a.platform || "").toLowerCase().includes(clean) || (a.country_language || "").toLowerCase().includes(clean))
+    .slice(0, 8);
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="px-3 py-2 rounded-xl bg-zinc-900/90 hover:bg-zinc-800 border border-zinc-800 text-xs text-zinc-300 flex items-center gap-2 transition-all"
+        title="Press Ctrl+K or Cmd+K from anywhere"
+      >
+        <span>🔍 Quick Jump</span>
+        <kbd className="px-1.5 py-0.5 text-[10px] font-mono bg-black border border-zinc-700 rounded text-zinc-400">⌘K</kbd>
+      </button>
+
+      {open && (
+        <div
+          className="fixed inset-0 z-[85] flex items-start justify-center pt-16 bg-black/85 backdrop-blur-2xl p-4 animate-in fade-in duration-200"
+          onClick={() => setOpen(false)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-2xl bg-zinc-950 border border-zinc-700 rounded-3xl p-4 sm:p-5 space-y-4 shadow-[0_0_90px_rgba(0,0,0,0.9)] animate-in zoom-in-95 duration-200"
+          >
+            <div className="flex items-center gap-3 border-b border-zinc-800 pb-3">
+              <span className="text-lg">🔍</span>
+              <input
+                type="text"
+                autoFocus
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                placeholder="Type any Team Leader, SMM Handler, @Handle, Platform, or Country..."
+                className="w-full bg-transparent text-sm text-white outline-none"
+              />
+              <button type="button" onClick={() => setOpen(false)} className="text-xs text-zinc-400 hover:text-white px-2 py-1 rounded bg-zinc-900">
+                ESC
+              </button>
+            </div>
+
+            <div className="max-h-[60vh] overflow-y-auto space-y-4 pr-1">
+              {matchedTls.length > 0 && (
+                <div className="space-y-1.5">
+                  <div className="text-[10px] uppercase font-bold text-emerald-400 px-2">🛡 Team Leaders</div>
+                  {matchedTls.map((tl) => (
+                    <div
+                      key={tl.id}
+                      onClick={() => { setOpen(false); onSelectTl(tl); }}
+                      className="cursor-pointer p-2.5 rounded-xl bg-black/70 hover:bg-emerald-500/20 border border-zinc-900 hover:border-emerald-500/40 flex justify-between items-center text-xs transition-all"
+                    >
+                      <span className="font-bold text-white">{tl.full_name}</span>
+                      <span className="text-zinc-400">{tl.country} ↗</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {matchedSmms.length > 0 && (
+                <div className="space-y-1.5">
+                  <div className="text-[10px] uppercase font-bold text-blue-400 px-2">👤 SMM Handlers</div>
+                  {matchedSmms.map((s) => (
+                    <div
+                      key={s.id}
+                      onClick={() => { setOpen(false); onSelectSmm(s); }}
+                      className="cursor-pointer p-2.5 rounded-xl bg-black/70 hover:bg-blue-500/20 border border-zinc-900 hover:border-blue-500/40 flex justify-between items-center text-xs transition-all"
+                    >
+                      <span className="font-bold text-white">{s.full_name}</span>
+                      <span className="text-zinc-400">{s.country} • {(s.platforms || []).join(", ").toUpperCase()} ↗</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {matchedAssets.length > 0 && (
+                <div className="space-y-1.5">
+                  <div className="text-[10px] uppercase font-bold text-purple-400 px-2">🗂 Social Media Assets</div>
+                  {matchedAssets.map((a) => (
+                    <div
+                      key={a.id}
+                      onClick={() => { setOpen(false); onSelectAsset(a); }}
+                      className="cursor-pointer p-2.5 rounded-xl bg-black/70 hover:bg-purple-500/20 border border-zinc-900 hover:border-purple-500/40 flex justify-between items-center text-xs transition-all"
+                    >
+                      <span className="font-bold text-white">[{a.platform?.toUpperCase()}] {a.account_id}</span>
+                      <span className="text-zinc-400">{a.country_language} • {a.language || "English"} ↗</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }

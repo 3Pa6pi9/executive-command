@@ -14,6 +14,10 @@ import {
   computeAchievements,
 } from "@/lib/constants";
 import {
+  usePortalTheme,
+  ThemePickerDropdown,
+  useRealtimePresence,
+  LiveOnlineRosterPill,
   AssetGrowthModal,
   UniversalAssetEditModal,
   SMMSpotlightModal,
@@ -24,7 +28,9 @@ import {
 } from "@/components/EnterpriseUI";
 
 export default function TeamLeaderPortal() {
+  const { themeId, changeTheme, currentTheme } = usePortalTheme();
   const [tlProfile, setTlProfile] = useState<any>(null);
+  const { onlineUsers, onlineIds } = useRealtimePresence(supabase, tlProfile);
   const [allTeamLeaders, setAllTeamLeaders] = useState<any[]>([]);
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
   const [liveSyncPulse, setLiveSyncPulse] = useState(false);
@@ -279,7 +285,7 @@ export default function TeamLeaderPortal() {
   const activeSpotlightSmm = spotlightSmm ? squadMembers.find((s) => s.id === spotlightSmm.id) || spotlightSmm : null;
 
   return (
-    <div className="min-h-screen bg-black text-zinc-100 p-3 sm:p-6 md:p-8 pb-28 md:pb-10 font-sans">
+    <div className={`min-h-screen ${currentTheme.shellBg} p-3 sm:p-6 md:p-8 pb-28 md:pb-10 font-sans">
       <div className="max-w-7xl mx-auto space-y-4 sm:space-y-6">
         <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center border-b border-zinc-800 pb-4 gap-3">
           <div>
@@ -287,9 +293,11 @@ export default function TeamLeaderPortal() {
               <span className="text-[10px] uppercase tracking-widest bg-blue-500/20 text-blue-300 border border-blue-500/30 px-2.5 py-0.5 rounded-full font-bold">@tl Squad Command</span>
               <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full border ${liveSyncPulse ? "bg-emerald-500/30 text-emerald-300" : "bg-zinc-900 border-zinc-800 text-emerald-400"}`}>LIVE</span>
             </div>
-            <h1 className="text-xl sm:text-3xl font-bold text-white mt-1.5">Team Leader {tlProfile.full_name}</h1>
+            <h1 className="text-xl sm:text-3xl font-bold text-white mt-1.5">{tlProfile.full_name}</h1>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <LiveOnlineRosterPill onlineUsers={onlineUsers} profiles={squadMembers} onSelectSmm={(smm) => setSpotlightSmm(smm)} />
+            <ThemePickerDropdown themeId={themeId} onChange={changeTheme} />
             <button onClick={() => setActiveTab("campaign")} className="px-4 py-2.5 bg-gradient-to-r from-purple-600 to-blue-600 text-white font-bold rounded-xl text-xs shadow-lg">🎯 Give Campaign</button>
             <button onClick={() => setShowCreateSmmModal(true)} className="px-3.5 py-2.5 bg-blue-600 text-white font-bold rounded-xl text-xs">+ SMM</button>
             <button onClick={() => setShowGiveModal(true)} className="px-3.5 py-2.5 bg-emerald-500 text-black font-bold rounded-xl text-xs">+ Asset</button>

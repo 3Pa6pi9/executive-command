@@ -14,6 +14,9 @@ import {
   computeAchievements,
 } from "@/lib/constants";
 import {
+  usePortalTheme,
+  ThemePickerDropdown,
+  useRealtimePresence,
   AssetGrowthModal,
   UniversalAssetEditModal,
   FancyMultiSelect,
@@ -22,7 +25,9 @@ import {
 } from "@/components/EnterpriseUI";
 
 export default function SMMDashboard() {
+  const { themeId, changeTheme, currentTheme } = usePortalTheme();
   const [profile, setProfile] = useState<any>(null);
+  const { onlineUsers } = useRealtimePresence(supabase, profile);
   const [teamLeaders, setTeamLeaders] = useState<any[]>([]);
   const [assets, setAssets] = useState<any[]>([]);
   const [selectedAssetId, setSelectedAssetId] = useState<string>("");
@@ -381,7 +386,7 @@ export default function SMMDashboard() {
   const myAchievements = computeAchievements(assets, allMyMetrics);
 
   return (
-    <div className="min-h-screen bg-black text-zinc-100 p-3 sm:p-6 md:p-8 pb-28 md:pb-10 font-sans">
+    <div className={`min-h-screen ${currentTheme.shellBg} p-3 sm:p-6 md:p-8 pb-28 md:pb-10 font-sans">
       <div className="max-w-7xl mx-auto space-y-4 sm:space-y-6">
         {/* Top Header */}
         <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center border-b border-zinc-800 pb-4 gap-3">
@@ -436,6 +441,8 @@ export default function SMMDashboard() {
             >
               ⬇ CSV
             </button>
+            <ThemePickerDropdown themeId={themeId} onChange={changeTheme} />
+            <span className="px-2.5 py-1.5 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-xs font-mono font-bold">🟢 {onlineUsers.length} Online</span>
             <button onClick={() => setShowSettings(true)} className="px-3.5 py-2 bg-zinc-900 border border-zinc-800 text-purple-300 font-bold rounded-xl text-xs">
               ⚙ Settings
             </button>
