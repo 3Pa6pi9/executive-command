@@ -1,3 +1,4 @@
+import { normalizeAuthUsername, formatDisplayUsername } from "@/lib/constants";
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
@@ -36,7 +37,7 @@ export async function POST(request: Request) {
         const targetRole = actor.role === "team_leader" ? "smm" : (payload.role || "smm");
 
         const { data: authData, error: authErr } = await adminSupabase.auth.admin.createUser({
-          email: payload.email.toLowerCase().trim(),
+          email: normalizeAuthUsername(payload.email, targetRole === "team_leader" ? "tl" : targetRole === "admin" ? "admin" : "smm"),
           password: payload.password,
           email_confirm: true
         });
@@ -74,7 +75,7 @@ export async function POST(request: Request) {
         for (const r of rows) {
           const roleToUse = actor.role === "team_leader" ? "smm" : (r.role || "smm");
           const { data: authData, error: authErr } = await adminSupabase.auth.admin.createUser({
-            email: r.email.toLowerCase().trim(),
+            email: normalizeAuthUsername(r.email, roleToUse === "team_leader" ? "tl" : roleToUse === "admin" ? "admin" : "smm"),
             password: r.password || "Welcome@2026!",
             email_confirm: true
           });

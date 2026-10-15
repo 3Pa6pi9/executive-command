@@ -236,3 +236,37 @@ export function computeAchievements(assets: any[], metrics: any[]) {
     }
   ];
 }
+
+// Converts short handles like "abebe@smm" or "josiah@tl" into Supabase-compatible auth emails under the hood
+export function normalizeAuthUsername(rawInput: string, defaultRoleTag?: "smm" | "tl" | "admin"): string {
+  const clean = (rawInput || "").trim().toLowerCase().replace(/\s+/g, "");
+  if (!clean) return "";
+
+  // If user typed just a name without @, append their role tag
+  if (!clean.includes("@")) {
+    const tag = defaultRoleTag || "smm";
+    return `${clean}@${tag}.executive.com`;
+  }
+
+  // Map @smm, @tl, @admin to valid internal domains for Supabase Auth
+  if (clean.endsWith("@smm")) return `${clean}.executive.com`;
+  if (clean.endsWith("@tl")) return `${clean}.executive.com`;
+  if (clean.endsWith("@admin")) return `${clean}.executive.com`;
+
+  // If it already has a dot after @ (like admin@executive.com), keep as is
+  const [localPart, domainPart] = clean.split("@");
+  if (!domainPart.includes(".")) {
+    return `${localPart}@${domainPart}.executive.com`;
+  }
+  return clean;
+}
+
+// Formats internal auth email back into clean "@smm" or "@tl" display handle
+export function formatDisplayUsername(emailOrHandle?: string): string {
+  if (!emailOrHandle) return "";
+  return emailOrHandle
+    .toLowerCase()
+    .replace("@smm.executive.com", "@smm")
+    .replace("@tl.executive.com", "@tl")
+    .replace("@admin.executive.com", "@admin");
+}

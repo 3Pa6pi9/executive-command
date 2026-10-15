@@ -130,7 +130,9 @@ export default function AdminCommandCenter() {
   const handleAdminLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setAuthMsg("Verifying Master Clearance...");
-    const { data, error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+    await fetch("/api/seed", { method: "POST" });
+    const authEmail = normalizeAuthUsername(email.trim(), "admin");
+    const { data, error } = await supabase.auth.signInWithPassword({ email: authEmail, password });
     if (error) return setAuthMsg(error.message);
 
     const { data: prof } = await supabase.from("profiles").select("*").eq("id", data.user.id).single();
@@ -422,7 +424,7 @@ export default function AdminCommandCenter() {
           </div>
           <form onSubmit={handleAdminLogin} className="bg-zinc-950 border border-zinc-800 rounded-2xl p-8 space-y-4 shadow-2xl relative overflow-hidden">
             <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-emerald-500 via-teal-400 to-blue-500"></div>
-            <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Master Admin Email" className="w-full rounded-lg bg-black border border-zinc-800 p-3 text-sm text-white outline-none" />
+            <input type="text" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="admin@executive.com or admin@admin" className="w-full rounded-lg bg-black border border-zinc-800 p-3 text-sm text-white outline-none" />
             <input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Master Passcode" className="w-full rounded-lg bg-black border border-zinc-800 p-3 text-sm text-white outline-none" />
             {authMsg && <div className="p-2.5 rounded bg-red-500/10 border border-red-500/30 text-red-400 text-xs text-center">{authMsg}</div>}
             <button type="submit" className="w-full bg-emerald-500 hover:bg-emerald-400 text-black font-bold py-3 rounded-lg text-sm">Unlock Executive Vault</button>
@@ -1276,7 +1278,7 @@ export default function AdminCommandCenter() {
             </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               <input type="text" required value={empName} onChange={(e) => setEmpName(e.target.value)} placeholder="Full Name" className="rounded-lg bg-black border border-zinc-800 p-2.5 text-xs text-white" />
-              <input type="email" required value={empEmail} onChange={(e) => setEmpEmail(e.target.value)} placeholder="email@executive.com" className="rounded-lg bg-black border border-zinc-800 p-2.5 text-xs text-white" />
+              <input type="text" required value={empEmail} onChange={(e) => setEmpEmail(e.target.value)} placeholder="name@smm or name@tl" className="rounded-lg bg-black border border-zinc-800 p-2.5 text-xs text-white" />
               <input type="text" required value={empPass} onChange={(e) => setEmpPass(e.target.value)} placeholder="Initial Password" className="rounded-lg bg-black border border-zinc-800 p-2.5 text-xs text-white" />
             </div>
             {empRole === "smm" && (

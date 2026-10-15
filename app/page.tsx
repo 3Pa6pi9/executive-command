@@ -4,14 +4,14 @@ import { useState, useEffect } from "react";
 import { managerSupabase as supabase } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { PLATFORMS, AFRICAN_COUNTRIES, EURASIA_SQUAD_COUNTRIES } from "@/lib/constants";
+import { PLATFORMS, AFRICAN_COUNTRIES, EURASIA_SQUAD_COUNTRIES, normalizeAuthUsername } from "@/lib/constants";
 
 export default function SMMGatekeeper() {
   const router = useRouter();
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
   const [isLoginMode, setIsLoginMode] = useState(true);
   
-  const [email, setEmail] = useState("");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
   const [selectedCountries, setSelectedCountries] = useState<string[]>(["Ethiopia"]);
@@ -39,18 +39,11 @@ export default function SMMGatekeeper() {
   };
 
   const fetchSanitizedTeamLeaders = async () => {
+    await fetch("/api/seed", { method: "POST" });
     const res = await fetch("/api/team-leaders");
     const json = await res.json();
-    if (!json.teamLeaders || json.teamLeaders.length < 9) {
-      await fetch("/api/seed", { method: "POST" });
-      const retry = await fetch("/api/team-leaders");
-      const retryJson = await retry.json();
-      setTeamLeaders(retryJson.teamLeaders || []);
-      if (retryJson.teamLeaders?.length > 0) setSelectedTlIds([retryJson.teamLeaders[0].id]);
-    } else {
-      setTeamLeaders(json.teamLeaders);
-      setSelectedTlIds([json.teamLeaders[0].id]);
-    }
+    setTeamLeaders(json.teamLeaders || []);
+    if (json.teamLeaders?.length > 0) setSelectedTlIds([json.teamLeaders[0].id]);
   };
 
   const toggleItem = (item: string, list: string[], setList: any) => {
@@ -59,16 +52,19 @@ export default function SMMGatekeeper() {
 
   const handleSMMAuth = async (e: React.FormEvent) => {
     e.preventDefault();
-    setStatus({ type: "loading", msg: "Verifying SMM Clearance..." });
+    setStatus({ type: "loading", msg: "Verifying @smm Credentials..." });
+
+    const formattedInput = username.trim().toLowerCase().includes("@") ? username.trim() : `${username.trim()}@smm`;
+    const authEmail = normalizeAuthUsername(formattedInput, "smm");
 
     if (isLoginMode) {
-      const { data, error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
-      if (error) return setStatus({ type: "error", msg: error.message });
+      const { data, error } = await supabase.auth.signInWithPassword({ email: authEmail, password });
+      if (error) return setStatus({ type: "error", msg: "Invalid @smm username or password." });
 
       const { data: profile } = await supabase.from("profiles").select("role").eq("id", data.user.id).single();
       if (profile?.role !== "smm") {
         await supabase.auth.signOut();
-        return setStatus({ type: "error", msg: "Access Denied: Strictly for SMM Handlers. Use Team Leader or Admin portal below." });
+        return setStatus({ type: "error", msg: "Access Denied: Strictly for @smm handlers. Team Leaders use @tl in the Team Leader Portal." });
       }
       router.push("/smm");
     } else {
@@ -80,7 +76,7 @@ export default function SMMGatekeeper() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ 
-          email: email.trim(),
+          email: formattedInput,
           password,
           role: "smm",
           full_name: fullName, 
@@ -93,10 +89,10 @@ export default function SMMGatekeeper() {
       
       const data = await res.json();
       if (res.ok) {
-        await supabase.auth.signInWithPassword({ email: email.trim(), password });
+        await supabase.auth.signInWithPassword({ email: authEmail, password });
         router.push("/smm");
       } else {
-        setStatus({ type: "error", msg: data.error || "Failed to create SMM account." });
+        setStatus({ type: "error", msg: data.error || "Failed to create @smm account." });
       }
     }
   };
@@ -109,11 +105,11 @@ export default function SMMGatekeeper() {
     <div className="flex min-h-screen flex-col items-center justify-center bg-black p-4 text-zinc-100 font-sans">
       <div className="w-full max-w-lg my-8">
         <div className="text-center mb-6">
-          <span className="text-[10px] uppercase tracking-widest bg-purple-500/20 text-purple-300 border border-purple-500/30 px-3 py-1 rounded-full font-bold shadow-[0_0_20px_rgba(168,85,247,0.3)]">
-            Tier 3 — Handler Access
+          <span className="text-[10px] uppercase tracking-widest bg-purple-500/20 text-purple-300 border border-purple-500/30 px-3 py-1 rounded-full font-bold">
+            Tier 3 — @smm Handler Access
           </span>
           <h1 className="text-3xl font-bold text-white tracking-tight mt-3">SMM Handler Portal</h1>
-          <p className="text-xs text-zinc-500 mt-1">Enterprise Asset Vault & Real-Time MEL Architecture</p>
+          <p className="text-xs text-zinc-500 mt-1">Sign in with your <b className="text-purple-400">username@smm</b> credentials</p>
         </div>
 
         <div className="rounded-2xl border border-zinc-800 bg-zinc-950 p-8 shadow-2xl relative overflow-hidden">
@@ -131,7 +127,7 @@ export default function SMMGatekeeper() {
                   <label className="text-[10px] uppercase font-bold text-zinc-400 ml-1">2. Choose Platform(s)</label>
                   <div className="grid grid-cols-3 gap-2 mt-1">
                     {PLATFORMS.map(p => (
-                      <button type="button" key={p} onClick={() => toggleItem(p, selectedPlatforms, setSelectedPlatforms)} className={`py-2 px-2 rounded-lg text-xs font-bold uppercase border transition-all ${selectedPlatforms.includes(p) ? "bg-purple-500/25 border-purple-500 text-purple-200 shadow-[0_0_12px_rgba(168,85,247,0.3)]" : "bg-black border-zinc-800 text-zinc-500"}`}>
+                      <button type="button" key={p} onClick={() => toggleItem(p, selectedPlatforms, setSelectedPlatforms)} className={`py-2 px-2 rounded-lg text-xs font-bold uppercase border transition-all ${selectedPlatforms.includes(p) ? "bg-purple-500/25 border-purple-500 text-purple-200" : "bg-black border-zinc-800 text-zinc-500"}`}>
                         {p}
                       </button>
                     ))}
@@ -151,7 +147,7 @@ export default function SMMGatekeeper() {
 
                 <div>
                   <div className="flex justify-between items-center mb-1">
-                    <label className="text-[10px] uppercase font-bold text-zinc-400 ml-1">4. Choose Operational Countries ({selectedCountries.length} selected)</label>
+                    <label className="text-[10px] uppercase font-bold text-zinc-400 ml-1">4. Choose Operational Countries ({selectedCountries.length})</label>
                     <div className="flex gap-1 bg-black p-0.5 rounded border border-zinc-800">
                       <button type="button" onClick={() => setCountryGroup("african")} className={`px-2 py-0.5 rounded text-[10px] font-bold ${countryGroup === "african" ? "bg-emerald-500 text-black" : "text-zinc-400"}`}>African Nations (20)</button>
                       <button type="button" onClick={() => setCountryGroup("eurasia")} className={`px-2 py-0.5 rounded text-[10px] font-bold ${countryGroup === "eurasia" ? "bg-emerald-500 text-black" : "text-zinc-400"}`}>Global Regions (14)</button>
@@ -159,7 +155,7 @@ export default function SMMGatekeeper() {
                   </div>
                   <div className="grid grid-cols-4 gap-1.5 max-h-40 overflow-y-auto p-1 bg-black/50 rounded-xl border border-zinc-900">
                     {displayedCountries.map(c => (
-                      <button type="button" key={c} onClick={() => toggleItem(c, selectedCountries, setSelectedCountries)} className={`py-1.5 px-2 rounded-lg text-[11px] font-bold border transition-all truncate ${selectedCountries.includes(c) ? "bg-emerald-500/20 border-emerald-500 text-emerald-300" : "bg-black border-zinc-800 text-zinc-500 hover:text-zinc-300"}`}>
+                      <button type="button" key={c} onClick={() => toggleItem(c, selectedCountries, setSelectedCountries)} className={`py-1.5 px-2 rounded-lg text-[11px] font-bold border transition-all truncate ${selectedCountries.includes(c) ? "bg-emerald-500/20 border-emerald-500 text-emerald-300" : "bg-black border-zinc-800 text-zinc-500"}`}>
                         {c}
                       </button>
                     ))}
@@ -169,8 +165,8 @@ export default function SMMGatekeeper() {
             )}
 
             <div>
-              <label className="text-[10px] uppercase font-bold text-zinc-400 ml-1">SMM Email</label>
-              <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="handler@executive.com" className="w-full mt-1 rounded-lg bg-black border border-zinc-800 p-3 text-sm focus:border-purple-500 outline-none text-white" />
+              <label className="text-[10px] uppercase font-bold text-purple-400 ml-1">SMM Username (@smm)</label>
+              <input type="text" required value={username} onChange={(e) => setUsername(e.target.value)} placeholder="e.g. abebe@smm" className="w-full mt-1 rounded-lg bg-black border border-zinc-800 p-3 text-sm focus:border-purple-500 outline-none text-white font-mono" />
             </div>
 
             <div>
@@ -184,20 +180,20 @@ export default function SMMGatekeeper() {
               </div>
             )}
 
-            <button type="submit" disabled={status.type === "loading"} className="w-full bg-purple-600 text-white p-3 rounded-lg font-bold hover:bg-purple-500 active:scale-[0.99] transition-all shadow-[0_0_25px_rgba(147,51,234,0.35)]">
-              {status.type === "loading" ? "Verifying..." : isLoginMode ? "Sign In to SMM Workspace" : "Complete SMM Registration"}
+            <button type="submit" disabled={status.type === "loading"} className="w-full bg-purple-600 text-white p-3 rounded-lg font-bold hover:bg-purple-500 transition-all">
+              {status.type === "loading" ? "Verifying..." : isLoginMode ? "Sign In with @smm" : "Create @smm Account"}
             </button>
             
             <div className="text-center pt-2">
               <button type="button" onClick={() => { setIsLoginMode(!isLoginMode); setStatus({ type: "idle", msg: "" }); }} className="text-xs text-zinc-400 hover:text-white transition-colors underline">
-                {isLoginMode ? "New SMM Handler? Create Account" : "Already registered? Sign In"}
+                {isLoginMode ? "New SMM Handler? Register @smm Username" : "Already registered? Sign In"}
               </button>
             </div>
           </form>
         </div>
 
         <div className="mt-6 flex justify-between items-center text-xs text-zinc-500 border-t border-zinc-900 pt-4 px-2">
-          <Link href="/team-leader" className="hover:text-blue-400 transition-colors">🛡 Team Leader Portal →</Link>
+          <Link href="/team-leader" className="hover:text-blue-400 transition-colors">🛡 Team Leader Portal (@tl) →</Link>
           <Link href="/admin" className="hover:text-emerald-400 transition-colors">👑 Admin Command Vault →</Link>
         </div>
       </div>

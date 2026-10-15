@@ -7,6 +7,7 @@ import {
   PLATFORMS,
   ALL_COUNTRIES,
   TimeHorizon,
+  normalizeAuthUsername,
   parseBulkRows,
   aggregateMetricsByHorizon,
   exportHorizonCSV,
@@ -104,7 +105,9 @@ export default function TeamLeaderPortal() {
   const handleTLLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setAuthMsg("Authenticating Team Leader...");
-    const { data, error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+    await fetch("/api/seed", { method: "POST" });
+    const authEmail = normalizeAuthUsername(email.trim(), "tl");
+    const { data, error } = await supabase.auth.signInWithPassword({ email: authEmail, password });
     if (error) return setAuthMsg(error.message);
 
     const { data: prof } = await supabase.from("profiles").select("*").eq("id", data.user.id).single();
@@ -353,7 +356,7 @@ export default function TeamLeaderPortal() {
           </div>
           <form onSubmit={handleTLLogin} className="bg-zinc-950 border border-zinc-800 rounded-2xl p-8 space-y-4 shadow-2xl relative overflow-hidden">
             <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 via-cyan-400 to-indigo-500"></div>
-            <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="josiah@executive.com" className="w-full rounded-lg bg-black border border-zinc-800 p-3 text-sm text-white" />
+            <input type="text" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="e.g. josiah@tl or jeff@tl" className="w-full rounded-lg bg-black border border-zinc-800 p-3 text-sm text-white" />
             <input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" className="w-full rounded-lg bg-black border border-zinc-800 p-3 text-sm text-white" />
             {authMsg && <div className="p-2.5 rounded bg-red-500/10 border border-red-500/30 text-red-400 text-xs text-center">{authMsg}</div>}
             <button type="submit" className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-lg text-sm">Authenticate Team Leader</button>
@@ -677,7 +680,7 @@ export default function TeamLeaderPortal() {
           <form onSubmit={handleCreateSquadSmm} onClick={(e) => e.stopPropagation()} className="w-full max-w-md bg-zinc-950 border border-blue-500/40 rounded-2xl p-6 space-y-3 shadow-2xl">
             <h3 className="text-base font-bold text-white">Onboard New Squad SMM</h3>
             <input type="text" required value={newSmmName} onChange={(e) => setNewSmmName(e.target.value)} placeholder="Handler Full Name" className="w-full rounded bg-black border border-zinc-800 p-2.5 text-xs text-white" />
-            <input type="email" required value={newSmmEmail} onChange={(e) => setNewSmmEmail(e.target.value)} placeholder="smm@executive.com" className="w-full rounded bg-black border border-zinc-800 p-2.5 text-xs text-white" />
+            <input type="text" required value={newSmmEmail} onChange={(e) => setNewSmmEmail(e.target.value)} placeholder="username@smm (e.g. abebe@smm)" className="w-full rounded bg-black border border-zinc-800 p-2.5 text-xs text-white" />
             <input type="text" required value={newSmmPass} onChange={(e) => setNewSmmPass(e.target.value)} placeholder="Initial Password" className="w-full rounded bg-black border border-zinc-800 p-2.5 text-xs text-white" />
             <select value={newSmmCountry} onChange={(e) => setNewSmmCountry(e.target.value)} className="w-full rounded bg-black border border-zinc-800 p-2.5 text-xs text-white">
               {ALL_COUNTRIES.map(c => <option key={c} value={c}>{c}</option>)}
