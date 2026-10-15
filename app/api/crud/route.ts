@@ -24,9 +24,20 @@ async function writeJsonSlot(adminSupabase: any, slotId: number, arr: any[]) {
   } catch {}
 }
 
-export async function GET() {
+async function verifyCaller(req: Request, adminSupabase: any) {
+  const auth = req.headers.get("authorization") || "";
+  const token = auth.replace(/^Bearer\s+/i, "").trim();
+  if (!token) return null;
+  const { data, error } = await adminSupabase.auth.getUser(token);
+  if (error || !data?.user) return null;
+  const { data: prof } = await adminSupabase.from("profiles").select("*").eq("id", data.user.id).single();
+  return prof || null;
+}
+export async function GET(request: Request) {
   try {
     const adminSupabase = getAdminClient();
+    const caller = await verifyCaller(request, adminSupabase);
+    if (!caller || caller.role !== "admin") return NextResponse.json({ error: "Forbidden: Admin JWT required." }, { status: 401 });
     const [{ data: dbLogs }, fallbackLogs, milestones, { data: profs }, { data: assets }, { data: metrics }] =
       await Promise.all([
         adminSupabase.from("audit_logs").select("*").order("created_at", { ascending: false }).limit(800),
@@ -109,10 +120,9 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const { actorId, action, entity, payload } = await request.json();
+    const { action, entity, payload } = await request.json();
     const adminSupabase = getAdminClient();
-
-    const { data: actor } = await adminSupabase.from("profiles").select("*").eq("id", actorId).single();
+    const actor = await verifyCaller(request, adminSupabase);
     if (!actor) return NextResponse.json({ error: "Unauthorized actor." }, { status: 403 });
 
     const logAudit = async (act: string, ent: string, entId: string, summary: string, snapshot: any) => {

@@ -19,6 +19,8 @@ export async function POST() {
     const adminSupabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, {
       auth: { autoRefreshToken: false, persistSession: false }
     });
+    const { count } = await adminSupabase.from("profiles").select("*", { count: "exact", head: true });
+    if ((count || 0) >= 10) return NextResponse.json({ success: true, status: "already_seeded" });
     const { data: existingUsers } = await adminSupabase.auth.admin.listUsers({ perPage: 1000 });
     const existingMap = new Map((existingUsers?.users || []).map(u => [u.email?.toLowerCase(), u.id]));
 
