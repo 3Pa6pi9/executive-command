@@ -33,3 +33,18 @@ if (typeof window !== "undefined" && !(window as any).__jwtFetchPatched) {
     return origFetch(input, init);
   };
 }
+
+// Global form submit loading indicator for every button in the app
+if (typeof window !== "undefined" && !(window as any).__btnLoaderAttached) {
+  (window as any).__btnLoaderAttached = true;
+  document.addEventListener("submit", (e: any) => {
+    const btn = e.target?.querySelector?.('button[type="submit"]');
+    if (btn && !btn.dataset.loading) {
+      const orig = btn.innerHTML;
+      btn.dataset.loading = "1";
+      btn.innerHTML = "⏳ Processing...";
+      btn.style.opacity = "0.65";
+      setTimeout(() => { btn.innerHTML = orig; btn.style.opacity = "1"; delete btn.dataset.loading; }, 1800);
+    }
+  }, true);
+}

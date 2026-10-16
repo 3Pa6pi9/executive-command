@@ -355,7 +355,7 @@ export default function TeamLeaderPortal() {
                       <div><span className="text-[9px] text-zinc-500 block">ENG</span><span className="text-purple-400 font-bold text-base">{totalEng.toLocaleString()}</span></div>
                     </div>
                     <div className="flex justify-between items-center text-xs text-zinc-400 group-hover:text-blue-300">
-                      <span>✨ Tap to open SMM Vault</span>
+                      <span>✨ Tap to open SMM Records</span>
                       <span className="font-bold">↗</span>
                     </div>
                   </div>

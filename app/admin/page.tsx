@@ -27,7 +27,7 @@ import {
   FancyEntityMultiSelect,
   CampaignDispatchWizard,
   ExecutiveAnalyticsGraphs,
-  ForensicArchiveVault,
+  ForensicArchiveRecords,
 } from "@/components/EnterpriseUI";
 
 export default function AdminControlCenter() {
@@ -772,7 +772,7 @@ export default function AdminControlCenter() {
 
                     <div className="flex justify-between items-center text-xs text-zinc-400 group-hover:text-blue-300 pt-1">
                       <span>SM: {(smm.platforms || ["twitter"]).join(", ").toUpperCase()}</span>
-                      <span className="font-bold">open Vault ↗</span>
+                      <span className="font-bold">open Records ↗</span>
                     </div>
                   </div>
                 );
@@ -873,7 +873,7 @@ export default function AdminControlCenter() {
 
         {/* TAB 6: ARCHIVES */}
         {activeTab === "archives" && (
-          <ForensicArchiveVault logs={auditLogs} onRestore={handleRestoreArchive} />
+          <ForensicArchiveRecords logs={auditLogs} onRestore={handleRestoreArchive} />
         )}
 
         {/* TAB 7: CUSTOM ADMIN MILESTONES & ACHIEVEMENTS */}

@@ -59,15 +59,22 @@ export function exportHorizonCSV(args: any) {
   return downloadMultiTabWorkbook(args);
 }
 export function computeAchievements(assets: any[], metrics: any[], ..._r: any[]) {
-  const impr = metrics.reduce((s, m) => s + Number(m.impressions || 0), 0);
-  const eng = metrics.reduce((s, m) => s + Number(m.engagements || 0), 0);
-  const posts = metrics.reduce((s, m) => s + Number(m.posts_published || 0), 0);
-  const active = assets.filter(a => a.status === "active").length;
+  const validIds = new Set(assets.map(a => a.id));
+  const mList = metrics.filter(m => !validIds.size || validIds.has(m.asset_id));
+  const views = mList.reduce((s, m) => s + Number(m.impressions || 0), 0);
+  const likes = mList.reduce((s, m) => s + Number(m.likes || m.engagements || 0), 0);
+  const posts = mList.reduce((s, m) => s + Number(m.posts_published || 0), 0);
+  const gained = mList.reduce((s, m) => s + Number(m.followers_gained || 0), 0);
+  const lost = mList.reduce((s, m) => s + Number(m.followers_lost || 0), 0);
+  const net = gained - lost;
+  const fols = assets.reduce((s, a) => s + mList.filter(m => m.asset_id === a.id).reduce((mx, x) => Math.max(mx, Number(x.total_followers || 0)), 0), 0);
   return [
-    { id: "viral", title: "100,000 Views Milestone", desc: "100,000+ Impressions", icon: "🚀", unlocked: impr >= 100000, progress: Math.min(100, Math.round((impr / 100000) * 100)), stat: `${impr.toLocaleString()} Impr` },
-    { id: "eng", title: "1,000 Likes & Engagements", desc: "1,000+ Engagements", icon: "⚡", unlocked: eng >= 1000, progress: Math.min(100, Math.round((eng / 1000) * 100)), stat: `${eng.toLocaleString()} Eng` },
-    { id: "posts", title: "250 Published Posts", desc: "250+ Posts Published", icon: "🔥", unlocked: posts >= 250, progress: Math.min(100, Math.round((posts / 250) * 100)), stat: `${posts.toLocaleString()} Posts` },
-    { id: "shield", title: "Active Account Compliance", desc: "5+ Active Assets", icon: "🛡️", unlocked: active >= 5, progress: Math.min(100, Math.round((active / 5) * 100)), stat: `${active} Active` }
+    { id: "acc", title: "Total Managed Accounts", desc: "Active social media accounts in scope", icon: "🗂", unlocked: assets.length > 0, progress: 100, stat: `${assets.length.toLocaleString()} Accounts` },
+    { id: "posts", title: "Total Published Posts", desc: "Cumulative posts published across accounts", icon: "📝", unlocked: posts > 0, progress: Math.min(100, Math.round((posts / 250) * 100)), stat: `${posts.toLocaleString()} Total Posts` },
+    { id: "views", title: "Total Views", desc: "Cumulative content views across all platforms", icon: "👁", unlocked: views > 0, progress: Math.min(100, Math.round((views / 100000) * 100)), stat: `${views.toLocaleString()} Total Views` },
+    { id: "likes", title: "Total Likes", desc: "Cumulative audience likes and interactions", icon: "❤️", unlocked: likes > 0, progress: Math.min(100, Math.round((likes / 5000) * 100)), stat: `${likes.toLocaleString()} Total Likes` },
+    { id: "fols", title: "Total Followers", desc: "Combined current follower count across accounts", icon: "👥", unlocked: fols > 0, progress: Math.min(100, Math.round((fols / 25000) * 100)), stat: `${fols.toLocaleString()} Total Followers` },
+    { id: "net", title: "Followers Gained / Lost", desc: `+${gained.toLocaleString()} gained / -${lost.toLocaleString()} lost`, icon: "📈", unlocked: net >= 0, progress: 100, stat: `${net >= 0 ? "+" : ""}${net.toLocaleString()} Net Followers` }
   ];
 }
 export type SheetTabOption = string;

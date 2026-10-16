@@ -729,7 +729,7 @@ export function AssetGrowthModal({
           <div className="flex items-center gap-2">
             {copiedLabel && <span className="text-[11px] bg-emerald-500/20 text-emerald-300 px-2.5 py-1 rounded-lg font-bold">Copied {copiedLabel}!</span>}
             <button type="button" onClick={() => setRevealSecrets(!revealSecrets)} className="px-3 py-1.5 rounded-xl bg-zinc-900 border border-zinc-700 text-xs text-amber-300 font-bold">
-              {revealSecrets ? "🙈 Mask Vault" : "🔓 Reveal Vault"}
+              {revealSecrets ? "🙈 Mask Records" : "🔓 Reveal Records"}
             </button>
             {onEdit && (
               <button type="button" onClick={() => { onClose(); onEdit(asset); }} className="px-3.5 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black text-xs font-bold">
@@ -1039,7 +1039,7 @@ export function ExecutiveAnalyticsGraphs({
 }
 
 // Archives Component with Full Blurred view-Up Spotlight Modal on Click + CSV Exports
-export function ForensicArchiveVault({
+export function ForensicArchiveRecords({
   logs,
   onRestore,
 }: {
