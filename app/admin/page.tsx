@@ -12,10 +12,15 @@ import {
   fetchAllRows,
   exportHorizonCSV,
   computeAchievements,
+  getAssetAccountName,
+  recordLocalArchiveEvent,
+  mergeArchiveEvents,
 } from "@/lib/constants";
 import {
   usePortalTheme,
   ThemePickerDropdown,
+  ThreePaneCommandMatrix,
+  ActionButton,
   useRealtimePresence,
   LiveOnlineRosterPill,
   GlobalCommandPalette,
@@ -31,7 +36,7 @@ import {
 } from "@/components/EnterpriseUI";
 
 export default function AdminControlCenter() {
-  const { themeId, changeTheme, currentTheme } = usePortalTheme();
+  const { themeId, changeTheme, currentTheme, layoutMode, changeLayoutMode } = usePortalTheme();
   const [adminProfile, setAdminProfile] = useState<any>(null);
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
   const [email, setEmail] = useState("");
@@ -114,7 +119,7 @@ export default function AdminControlCenter() {
     setProfiles(pList);
     setAssets(aList);
     setMetrics(mList);
-    setAuditLogs(auditRes.logs || []);
+    setAuditLogs(mergeArchiveEvents(auditRes.logs || []));
     setCustomMilestones(auditRes.milestones || []);
   }, []);
 
@@ -319,7 +324,8 @@ export default function AdminControlCenter() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ actorId: adminProfile.id, entity: "asset", action: "update", payload: { id: asset.id, status: newStatus } }),
     });
-    setStatusMsg(`Asset [${asset.account_id}] marked ${newStatus.toUpperCase()} & logged in Archives!`);
+    recordLocalArchiveEvent({ actor_name: adminProfile.full_name, actor_role: "admin", action: newStatus === "suspended" ? "SUSPENDED" : "ACTIVE", entity_type: "ASSET", entity_id: asset.id, summary: `${newStatus === "suspended" ? "Suspended" : "Activated"} Account: ${getAssetAccountName(asset)} (${asset.account_id})`, record_snapshot: { ...asset, status: newStatus } });
+    setStatusMsg(`Account ${getAssetAccountName(asset)} marked ${newStatus.toUpperCase()} and logged in Archives.`);
     await loadAllEnterpriseData();
   };
 
@@ -467,7 +473,7 @@ export default function AdminControlCenter() {
               onSelectAsset={(a) => setInspectingAsset(a)}
             />
 
-            <ThemePickerDropdown themeId={themeId} onChange={changeTheme} />
+            <ThemePickerDropdown themeId={themeId} onChange={changeTheme} layoutMode={layoutMode} onLayoutChange={changeLayoutMode} />
 
             <button
               onClick={() => setActiveTab("campaign")}
@@ -582,7 +588,10 @@ export default function AdminControlCenter() {
         </div>
 
         {/* TAB 1: TEAM LEADERS (WITH LIVE ONLINE BADGES) */}
-        {activeTab === "tls" && (
+        {layoutMode === "split" && (
+          <ThreePaneCommandMatrix teamLeaders={teamLeaders} smms={allSmms} assets={filteredAssets} metrics={metrics} onSelectTl={(tl) => setSpotlightTl(tl)} onSelectSmm={(smm) => setSpotlightSmm(smm)} onSelectAsset={(a) => setInspectingAsset(a)} onEditAsset={(a) => setEditingAsset(a)} onToggleAssetStatus={handleSetAssetStatus} onToggleSmmLock={handleToggleSmmLock} />
+        )}
+        {layoutMode !== "split" && activeTab === "tls" && (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 animate-in fade-in duration-300">
             {teamLeaders
               .filter((tl) => !q || (tl.full_name || "").toLowerCase().includes(q) || (tl.country || "").toLowerCase().includes(q))
@@ -843,7 +852,7 @@ export default function AdminControlCenter() {
                         🔍 open Asset
                       </button>
                       <button type="button" onClick={() => setEditingAsset(asset)} className="py-2 bg-zinc-900 hover:bg-emerald-500 text-emerald-400 hover:text-black font-bold rounded-xl text-xs">
-                        ✎ Edit All 15
+                        Edit Account
                       </button>
                     </div>
                   </div>

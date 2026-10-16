@@ -16,6 +16,8 @@ import {
 import {
   usePortalTheme,
   ThemePickerDropdown,
+  ThreePaneCommandMatrix,
+  ActionButton,
   useRealtimePresence,
   LiveOnlineRosterPill,
   AssetGrowthModal,
@@ -28,7 +30,7 @@ import {
 } from "@/components/EnterpriseUI";
 
 export default function TeamLeaderPortal() {
-  const { themeId, changeTheme, currentTheme } = usePortalTheme();
+  const { themeId, changeTheme, currentTheme, layoutMode, changeLayoutMode } = usePortalTheme();
   const [tlProfile, setTlProfile] = useState<any>(null);
   const { onlineUsers, onlineIds } = useRealtimePresence(supabase, tlProfile);
   const [allTeamLeaders, setAllTeamLeaders] = useState<any[]>([]);
@@ -299,7 +301,7 @@ export default function TeamLeaderPortal() {
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <LiveOnlineRosterPill onlineUsers={onlineUsers} profiles={squadMembers} onSelectSmm={(smm) => setSpotlightSmm(smm)} />
-            <ThemePickerDropdown themeId={themeId} onChange={changeTheme} />
+            <ThemePickerDropdown themeId={themeId} onChange={changeTheme} layoutMode={layoutMode} onLayoutChange={changeLayoutMode} />
             <button onClick={() => setActiveTab("campaign")} className="px-4 py-2.5 bg-gradient-to-r from-purple-600 to-blue-600 text-white font-bold rounded-xl text-xs shadow-lg">🎯 Give Campaign</button>
             <button onClick={() => setShowCreateSmmModal(true)} className="px-3.5 py-2.5 bg-blue-600 text-white font-bold rounded-xl text-xs">+ SMM</button>
             <button onClick={() => setShowGiveModal(true)} className="px-3.5 py-2.5 bg-emerald-500 text-black font-bold rounded-xl text-xs">+ Asset</button>
@@ -383,7 +385,7 @@ export default function TeamLeaderPortal() {
                   <p className="text-xs text-zinc-400">🌍 {asset.country_language} • 🗣 {asset.language || "English"} • 👤 {owner?.full_name || "Unassigned"}</p>
                   <div className="grid grid-cols-2 gap-2 pt-1" onClick={(e) => e.stopPropagation()}>
                     <button type="button" onClick={() => setInspectingAsset(asset)} className="py-2 bg-blue-600/20 text-blue-300 font-bold rounded-xl text-xs">🔍 open Asset</button>
-                    <button type="button" onClick={() => setEditingAsset(asset)} className="py-2 bg-zinc-900 text-emerald-400 font-bold rounded-xl text-xs">✎ Edit All 15</button>
+                    <button type="button" onClick={() => setEditingAsset(asset)} className="py-2 bg-zinc-900 text-emerald-400 font-bold rounded-xl text-xs">Edit Account</button>
                   </div>
                 </div>
               );
