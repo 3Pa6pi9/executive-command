@@ -131,7 +131,7 @@ export default function TeamLeaderPortal() {
     setSquadMembers(filteredSmms);
     if (filteredSmms.length > 0 && !assignSmmId) setAssignSmmId(filteredSmms[0].id);
     const smmIds = new Set(filteredSmms.map((s) => s.id));
-    setSquadAssets(assets.filter((a) => a.team_leader_id === tlId || smmIds.has(a.smm_id)));
+    setSquadAssets(assets.filter((a: any) => a.team_leader_id === tlId || smmIds.has(a.smm_id)));
     setSquadMetrics(metrics);
   };
 
@@ -172,7 +172,7 @@ export default function TeamLeaderPortal() {
     setEditingSmm({ ...smm });
     setEditSmmCountries((smm.country || "Kenya").split(",").map((c: string) => c.trim()).filter(Boolean));
     setEditSmmPlatforms(smm.platforms?.length > 0 ? smm.platforms : ["twitter"]);
-    setEditSmmAssetIds(squadAssets.filter((a) => a.smm_id === smm.id).map((a) => a.id));
+    setEditSmmAssetIds(squadAssets.filter((a: any) => a.smm_id === smm.id).map((a: any) => a.id));
     setEditSmmNewPass("");
   };
 
@@ -298,7 +298,7 @@ export default function TeamLeaderPortal() {
             <h1 className="text-xl sm:text-3xl font-bold text-white mt-1.5">{tlProfile.full_name}</h1>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <LiveOnlineRosterPill onlineUsers={onlineUsers} profiles={squadMembers} onSelectSmm={(smm) => setSpotlightSmm(smm)} />
+            <LiveOnlineRosterPill onlineUsers={onlineUsers} profiles={squadMembers} onSelectSmm={(smm: any) => setSpotlightSmm(smm)} />
             <ThemePickerDropdown themeId={themeId} onChange={changeTheme} />
             <button onClick={() => setActiveTab("campaign")} className="px-4 py-2.5 bg-gradient-to-r from-purple-600 to-blue-600 text-white font-bold rounded-xl text-xs shadow-lg">🎯 Give Campaign</button>
             <button onClick={() => setShowCreateSmmModal(true)} className="px-3.5 py-2.5 bg-blue-600 text-white font-bold rounded-xl text-xs">+ SMM</button>
@@ -326,9 +326,9 @@ export default function TeamLeaderPortal() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
             {squadMembers
               .filter((s) => !q || (s.full_name || "").toLowerCase().includes(q))
-              .map((smm) => {
-                const smmAssets = squadAssets.filter((a) => a.smm_id === smm.id);
-                const smmLogs = squadMetrics.filter((m) => smmAssets.some((a) => a.id === m.asset_id));
+              .map((smm: any) => {
+                const smmAssets = squadAssets.filter((a: any) => a.smm_id === smm.id);
+                const smmLogs = squadMetrics.filter((m) => smmAssets.some((a: any) => a.id === m.asset_id));
                 const totalImpr = smmLogs.reduce((acc, x) => acc + (x.impressions || 0), 0);
                 const totalEng = smmLogs.reduce((acc, x) => acc + (x.engagements || 0), 0);
 
@@ -365,12 +365,12 @@ export default function TeamLeaderPortal() {
         )}
 
         {activeTab === "campaign" && (
-          <CampaignDispatchWizard actorId={tlProfile.id} teamLeaders={allTeamLeaders.length > 0 ? allTeamLeaders : [tlProfile]} smms={squadMembers} assets={squadAssets} defaultTlId={tlProfile.id} onSuccess={(msg) => { setStatusMsg(msg); loadSquadData(tlProfile.id); setActiveTab("assets"); }} />
+          <CampaignDispatchWizard actorId={tlProfile.id} teamLeaders={allTeamLeaders.length > 0 ? allTeamLeaders : [tlProfile]} smms={squadMembers} assets={squadAssets} defaultTlId={tlProfile.id} onSuccess={(msg: any) => { setStatusMsg(msg); loadSquadData(tlProfile.id); setActiveTab("assets"); }} />
         )}
 
         {activeTab === "assets" && (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {squadAssets.filter((a) => !q || (a.account_id || "").toLowerCase().includes(q)).map((asset) => {
+            {squadAssets.filter((a: any) => !q || (a.account_id || "").toLowerCase().includes(q)).map((asset) => {
               const isSuspended = asset.status === "suspended";
               const owner = squadMembers.find((s) => s.id === asset.smm_id);
               return (
@@ -392,7 +392,7 @@ export default function TeamLeaderPortal() {
         )}
 
         {activeTab === "graphs" && (
-          <ExecutiveAnalyticsGraphs assets={squadAssets} metrics={squadMetrics} profiles={[tlProfile, ...squadMembers]} onSelectAsset={(a) => setInspectingAsset(a)} titlePrefix={`Team Leader ${tlProfile.full_name} Squad`} />
+          <ExecutiveAnalyticsGraphs assets={squadAssets} metrics={squadMetrics} profiles={[tlProfile, ...squadMembers]} onSelectAsset={(a: any) => setInspectingAsset(a)} titlePrefix={`Team Leader ${tlProfile.full_name} Squad`} />
         )}
 
         {activeTab === "achievements" && (
@@ -415,16 +415,16 @@ export default function TeamLeaderPortal() {
           assets={squadAssets}
           metrics={squadMetrics}
           onClose={() => setSpotlightSmm(null)}
-          onSelectAsset={(a) => setInspectingAsset(a)}
-          onEditAsset={(a) => setEditingAsset(a)}
+          onSelectAsset={(a: any) => setInspectingAsset(a)}
+          onEditAsset={(a: any) => setEditingAsset(a)}
           onToggleAssetStatus={handleSetAssetStatus}
-          onEditSmm={(smm) => openEditSmmModal(smm)}
+          onEditSmm={(smm: any) => openEditSmmModal(smm)}
           onToggleSmmLock={handleToggleLock}
         />
       )}
 
       {inspectingAsset && (
-        <AssetGrowthModal asset={inspectingAsset} metrics={squadMetrics} profiles={[tlProfile, ...squadMembers]} onClose={() => setInspectingAsset(null)} onEdit={(a) => setEditingAsset(a)} onToggleStatus={handleSetAssetStatus} />
+        <AssetGrowthModal asset={inspectingAsset} metrics={squadMetrics} profiles={[tlProfile, ...squadMembers]} onClose={() => setInspectingAsset(null)} onEdit={(a: any) => setEditingAsset(a)} onToggleStatus={handleSetAssetStatus} />
       )}
 
       {editingAsset && (
@@ -444,7 +444,7 @@ export default function TeamLeaderPortal() {
             </div>
             <FancyMultiSelect label="Platforms" options={PLATFORMS} selected={editSmmPlatforms} onChange={setEditSmmPlatforms} />
             <FancyMultiSelect label="Countries" options={ALL_COUNTRIES} selected={editSmmCountries} onChange={setEditSmmCountries} />
-            <FancyEntityMultiSelect label="Assigned Assets" items={squadAssets.map((a) => ({ id: a.id, label: `[${(a.platform || "").toUpperCase()}] ${a.account_id}`, sub: a.country_language }))} selectedIds={editSmmAssetIds} onChange={setEditSmmAssetIds} />
+            <FancyEntityMultiSelect label="Assigned Assets" items={squadAssets.map((a: any) => ({ id: a.id, label: `[${(a.platform || "").toUpperCase()}] ${a.account_id}`, sub: a.country_language }))} selectedIds={editSmmAssetIds} onChange={setEditSmmAssetIds} />
             <button type="submit" className="w-full py-3.5 bg-blue-600 text-white font-bold rounded-xl text-xs">Save SMM Changes Live</button>
           </form>
         </div>

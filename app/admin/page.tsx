@@ -12,8 +12,12 @@ import {
   fetchAllRows,
   exportHorizonCSV,
   computeAchievements,
+  getAssetAccountName,
+  recordLocalArchiveEvent,
+  mergeArchiveEvents,
 } from "@/lib/constants";
 import {
+  ActionButton,
   usePortalTheme,
   ThemePickerDropdown,
   useRealtimePresence,
@@ -27,7 +31,7 @@ import {
   FancyEntityMultiSelect,
   CampaignDispatchWizard,
   ExecutiveAnalyticsGraphs,
-  ForensicArchiveRecords,
+  ForensicArchiveVault,
 } from "@/components/EnterpriseUI";
 
 export default function AdminControlCenter() {
@@ -46,33 +50,27 @@ export default function AdminControlCenter() {
   const [customMilestones, setCustomMilestones] = useState<any[]>([]);
   const [statusMsg, setStatusMsg] = useState("");
 
-  // Live 169-User Presence Tracking
-  const { onlineUsers, onlineIds } = useRealtimePresence(supabase, adminProfile);
+  const { onlineUsers } = useRealtimePresence(supabase, adminProfile);
 
   const [activeTab, setActiveTab] = useState<
     "tls" | "smms" | "assets" | "campaign" | "graphs" | "archives" | "achievements"
   >("tls");
 
   const [showExportMenu, setShowExportMenu] = useState(false);
-  const [projectFilter, setProjectFilter] = useState<string>("All");
   const [searchQuery, setSearchQuery] = useState("");
   const [csvHorizon, setCsvHorizon] = useState<TimeHorizon>("weekly");
   const [csvSheetTab, setCsvSheetTab] = useState<SheetTabOption>("all");
 
-  // SMMs & Assets Dedicated Platform, Country & Weekly Compliance Filters
   const [smmPlatformFilter, setSmmPlatformFilter] = useState<string>("all");
   const [smmCountryFilter, setSmmCountryFilter] = useState<string>("all");
-  const [smmComplianceFilter, setSmmComplianceFilter] = useState<"all" | "online" | "logged" | "missing">("all");
   const [assetPlatformFilter, setAssetPlatformFilter] = useState<string>("all");
   const [assetCountryFilter, setAssetCountryFilter] = useState<string>("all");
 
-  // Blurred Spotlight view-Up Windows
   const [spotlightTl, setSpotlightTl] = useState<any>(null);
   const [spotlightSmm, setSpotlightSmm] = useState<any>(null);
   const [inspectingAsset, setInspectingAsset] = useState<any>(null);
   const [editingAsset, setEditingAsset] = useState<any>(null);
 
-  // Employee Editor Modal
   const [editingEmployee, setEditingEmployee] = useState<any>(null);
   const [empCountries, setEmpCountries] = useState<string[]>([]);
   const [empPlatforms, setEmpPlatforms] = useState<string[]>([]);
@@ -81,7 +79,6 @@ export default function AdminControlCenter() {
   const [empAssignedAssetIds, setEmpAssignedAssetIds] = useState<string[]>([]);
   const [empNewPass, setEmpNewPass] = useState("");
 
-  // Admin Settings & Provision Modals
   const [showAdminSettings, setShowAdminSettings] = useState(false);
   const [adminDisplayName, setAdminDisplayName] = useState("");
   const [adminCountries, setAdminCountries] = useState<string[]>([]);
@@ -96,11 +93,9 @@ export default function AdminControlCenter() {
   const [newPlatforms, setNewPlatforms] = useState<string[]>(["twitter"]);
   const [newTlIds, setNewTlIds] = useState<string[]>([]);
 
-  // Custom Admin Milestone Form
   const [msTitle, setMsTitle] = useState("");
-  const [msMetric, setMsMetric] = useState("engagements");
+  const [msMetric, setMsMetric] = useState("views");
   const [msTarget, setMsTarget] = useState("10000");
-  const [msIcon, setMsIcon] = useState("👑");
 
   const debounceRef = useRef<any>(null);
 
@@ -114,11 +109,10 @@ export default function AdminControlCenter() {
     setProfiles(pList);
     setAssets(aList);
     setMetrics(mList);
-    setAuditLogs(auditRes.logs || []);
+    setAuditLogs(mergeArchiveEvents(auditRes.logs || []));
     setCustomMilestones(auditRes.milestones || []);
   }, []);
 
-  // Debounced reload so 169 concurrent users never cause a fetch storm
   const triggerDebouncedReload = useCallback(() => {
     setLiveSyncPulse(true);
     setTimeout(() => setLiveSyncPulse(false), 1000);
@@ -160,14 +154,14 @@ export default function AdminControlCenter() {
 
   const handleAdminLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    setAuthMsg("Authenticating Admin Control Center...");
+    setAuthMsg("Authenticating...");
     await fetch("/api/seed", { method: "POST" });
     const raw = email.trim();
     const norm = raw.includes("@") ? raw : normalizeAuthUsername(raw, "admin");
     const { data, error } = await supabase.auth.signInWithPassword({ email: norm, password });
     if (error) return setAuthMsg(error.message);
     const { data: prof } = await supabase.from("profiles").select("*").eq("id", data.user.id).single();
-    if (!prof || prof.role !== "admin") { await supabase.auth.signOut(); return setAuthMsg("Admin clearance required."); }
+    if (!prof || prof.role !== "admin") { await supabase.auth.signOut(); return setAuthMsg("Admin access required."); }
     setAdminProfile(prof);
     await loadAllEnterpriseData();
   };
@@ -182,11 +176,11 @@ export default function AdminControlCenter() {
         actorId: adminProfile.id,
         entity: "milestone",
         action: "create",
-        payload: { title: msTitle.trim(), metric: msMetric, target: Number(msTarget), icon: msIcon },
+        payload: { title: msTitle.trim(), metric: msMetric, target: Number(msTarget), icon: "🏆" },
       }),
     });
     setMsTitle("");
-    setStatusMsg("🏆 Custom Milestone Achievement published live!");
+    setStatusMsg("Milestone published.");
     await loadAllEnterpriseData();
   };
 
@@ -205,7 +199,16 @@ export default function AdminControlCenter() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ actorId: adminProfile.id, entity: "profile", action: "update", payload: { targetId: smm.id, is_locked: !smm.is_locked } }),
     });
-    setStatusMsg(`${smm.full_name} is now ${!smm.is_locked ? "LOCKED 🔒" : "OPEN 🔓"}`);
+    recordLocalArchiveEvent({
+      actor_name: adminProfile.full_name,
+      actor_role: "admin",
+      action: !smm.is_locked ? "LOCKED" : "UNLOCKED",
+      entity_type: "EMPLOYEE",
+      entity_id: smm.id,
+      summary: `${!smm.is_locked ? "Locked" : "Unlocked"} SMM Handler: ${smm.full_name}`,
+      record_snapshot: smm,
+    });
+    setStatusMsg(`${smm.full_name} is now ${!smm.is_locked ? "LOCKED" : "OPEN"}.`);
     await loadAllEnterpriseData();
   };
 
@@ -215,7 +218,7 @@ export default function AdminControlCenter() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ actorId: adminProfile.id, entity: "profile", action: "batch_lock", payload: { is_locked: lockState } }),
     });
-    setStatusMsg(lockState ? "🔒 All SMMs Locked!" : "🔓 All SMMs Unlocked!");
+    setStatusMsg(lockState ? "All SMMs locked." : "All SMMs unlocked.");
     await loadAllEnterpriseData();
   };
 
@@ -233,7 +236,7 @@ export default function AdminControlCenter() {
     });
     setAdminNewPass("");
     setShowAdminSettings(false);
-    setStatusMsg("✓ Admin Control Center Settings Updated!");
+    setStatusMsg("Settings updated.");
     await loadAllEnterpriseData();
   };
 
@@ -244,7 +247,7 @@ export default function AdminControlCenter() {
     setEmpTlIds(emp.team_leader_ids?.length > 0 ? emp.team_leader_ids : emp.team_leader_id ? [emp.team_leader_id] : []);
     const smmsUnderTl = profiles.filter((p) => p.role === "smm" && (p.team_leader_id === emp.id || (p.team_leader_ids && p.team_leader_ids.includes(emp.id)))).map((s) => s.id);
     setEmpAssignedSmmIds(smmsUnderTl);
-    const assetsUnderSmm = assets.filter((a) => a.smm_id === emp.id).map((a) => a.id);
+    const assetsUnderSmm = assets.filter((a: any) => a.smm_id === emp.id).map((a: any) => a.id);
     setEmpAssignedAssetIds(assetsUnderSmm);
     setEmpNewPass("");
   };
@@ -274,7 +277,7 @@ export default function AdminControlCenter() {
       }),
     });
     setEditingEmployee(null);
-    setStatusMsg("✓ Personnel Profile & Assignments Updated Live!");
+    setStatusMsg("Profile and assignments updated.");
     await loadAllEnterpriseData();
   };
 
@@ -286,7 +289,7 @@ export default function AdminControlCenter() {
       body: JSON.stringify({ actorId: adminProfile.id, entity: "profile", action: "delete", payload: { targetId: emp.id } }),
     });
     setEditingEmployee(null);
-    setStatusMsg(`🗑 Deleted ${emp.full_name}.`);
+    setStatusMsg(`Deleted ${emp.full_name}.`);
     await loadAllEnterpriseData();
   };
 
@@ -306,20 +309,28 @@ export default function AdminControlCenter() {
     if (res.ok) {
       setShowProvisionModal(false);
       setNewName(""); setNewEmail(""); setNewPass("");
-      setStatusMsg(`✓ Provisioned ${newRole.toUpperCase()} ${newName}!`);
+      setStatusMsg(`Created ${newRole.toUpperCase()} account: ${newName}.`);
       await loadAllEnterpriseData();
     } else alert(data.error);
   };
 
   const handleSetAssetStatus = async (asset: any, newStatus: "active" | "suspended") => {
     if (asset.status === newStatus) return;
-    setAssets((prev: any[]) => prev.map(a => a.id === asset.id ? { ...a, status: newStatus } : a));
     await fetch("/api/crud", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ actorId: adminProfile.id, entity: "asset", action: "update", payload: { id: asset.id, status: newStatus } }),
     });
-    setStatusMsg(`Asset [${asset.account_id}] marked ${newStatus.toUpperCase()} & logged in Archives!`);
+    recordLocalArchiveEvent({
+      actor_name: adminProfile.full_name,
+      actor_role: "admin",
+      action: newStatus === "suspended" ? "SUSPENDED" : "ACTIVE",
+      entity_type: "ASSET",
+      entity_id: asset.id,
+      summary: `${newStatus === "suspended" ? "Suspended" : "Activated"} Account: ${getAssetAccountName(asset)} (${asset.account_id})`,
+      record_snapshot: { ...asset, status: newStatus },
+    });
+    setStatusMsg(`Account ${getAssetAccountName(asset)} marked ${newStatus.toUpperCase()} and recorded in Archives.`);
     await loadAllEnterpriseData();
   };
 
@@ -329,46 +340,46 @@ export default function AdminControlCenter() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ actorId: adminProfile.id, entity: "asset", action: "update", payload: updatedAsset }),
     });
+    recordLocalArchiveEvent({
+      actor_name: adminProfile.full_name,
+      actor_role: "admin",
+      action: "UPDATE",
+      entity_type: "ASSET",
+      entity_id: updatedAsset.id,
+      summary: `Updated Account: ${getAssetAccountName(updatedAsset)} (${updatedAsset.account_id})`,
+      record_snapshot: updatedAsset,
+    });
     setEditingAsset(null);
-    setStatusMsg("✓ All 15 Asset Fields Updated Live!");
+    setStatusMsg("Account updated.");
     await loadAllEnterpriseData();
   };
 
   const handleDeleteAsset = async (assetId: string) => {
-    if (!confirm("Delete this Asset permanently?")) return;
+    if (!confirm("Delete this account permanently?")) return;
     await fetch("/api/crud", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ actorId: adminProfile.id, entity: "asset", action: "delete", payload: { id: assetId } }),
     });
     setEditingAsset(null);
-    setStatusMsg("🗑 Asset deleted.");
+    setStatusMsg("Account deleted.");
     await loadAllEnterpriseData();
   };
 
   const handleRestoreArchive = async (log: any) => {
     const snap = log.record_snapshot?.before || log.record_snapshot;
-    if (!snap) return alert("No snapshot payload available.");
+    if (!snap) return alert("No snapshot available.");
     await fetch("/api/crud", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ actorId: adminProfile.id, entity: "audit", action: "restore", payload: { snapshot: snap, entityType: log.entity_type } }),
     });
-    setStatusMsg("♻ Restored record from Archives!");
+    setStatusMsg("Record restored from Archives.");
     await loadAllEnterpriseData();
   };
 
   if (isCheckingAuth) {
-    return (
-      <div className="min-h-screen bg-black p-8 space-y-6 animate-pulse">
-        <div className="h-14 w-full max-w-md bg-zinc-900 rounded-2xl" />
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-          {[1, 2, 3, 4, 5, 6].map((n) => (
-            <div key={n} className="h-44 bg-zinc-950 border border-zinc-900 rounded-3xl" />
-          ))}
-        </div>
-      </div>
-    );
+    return <div className="flex min-h-screen items-center justify-center bg-black text-emerald-400 font-mono text-sm animate-pulse">Loading Admin Control Center...</div>;
   }
 
   if (!adminProfile) {
@@ -383,7 +394,9 @@ export default function AdminControlCenter() {
             <input type="text" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="admin@executive.com" className="w-full rounded-xl bg-black border border-zinc-800 p-3.5 text-sm text-white outline-none" />
             <input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Passcode" className="w-full rounded-xl bg-black border border-zinc-800 p-3.5 text-sm text-white outline-none" />
             {authMsg && <div className="p-2.5 rounded bg-red-500/10 border border-red-500/30 text-red-400 text-xs text-center">{authMsg}</div>}
-            <button type="submit" className="w-full bg-emerald-500 hover:bg-emerald-400 text-black font-bold py-3.5 rounded-xl text-sm">Sign In to Admin Control Center</button>
+            <ActionButton type="submit" loadingText="Signing In..." className="w-full bg-emerald-500 hover:bg-emerald-400 text-black font-bold py-3.5 rounded-xl text-sm">
+              Sign In to Admin Control Center
+            </ActionButton>
           </form>
           <div className="mt-6 text-center"><Link href="/" className="text-xs text-zinc-500 hover:text-purple-400">← Return to SMM Portal</Link></div>
         </div>
@@ -393,36 +406,22 @@ export default function AdminControlCenter() {
 
   const teamLeaders = profiles.filter((p) => p.role === "team_leader");
   const allSmms = profiles.filter((p) => p.role === "smm");
-  const uniqueProjects = Array.from(new Set(assets.map((a) => a.project_name || "General Campaign")));
-  const filteredAssets = projectFilter === "All" ? assets : assets.filter((a) => (a.project_name || "General Campaign") === projectFilter);
   const q = searchQuery.toLowerCase().trim();
-  const globalAchievements = computeAchievements(filteredAssets, metrics, customMilestones);
+  const globalAchievements = computeAchievements(assets, metrics, customMilestones);
 
-  // Check if an SMM has logged metrics within the last 7 days
-  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString().slice(0, 10);
-  const hasLoggedRecent = (smmId: string) => {
-    const sAssetIds = assets.filter((a) => a.smm_id === smmId).map((a) => a.id);
-    return metrics.some((m) => sAssetIds.includes(m.asset_id) && (m.week_of || "") >= sevenDaysAgo);
-  };
-
-  // Filtered SMMs by SM Platform, Country & Weekly Compliance / Online State
   const visibleSmms = allSmms.filter((s) => {
     if (q && !(s.full_name || "").toLowerCase().includes(q) && !(s.country || "").toLowerCase().includes(q)) return false;
     if (smmPlatformFilter !== "all") {
       const sPlats: string[] = s.platforms || [];
-      const sAssetPlats = assets.filter((a) => a.smm_id === s.id).map((a) => a.platform);
+      const sAssetPlats = assets.filter((a: any) => a.smm_id === s.id).map((a: any) => a.platform);
       if (!sPlats.includes(smmPlatformFilter) && !sAssetPlats.includes(smmPlatformFilter)) return false;
     }
     if (smmCountryFilter !== "all" && !(s.country || "").toLowerCase().includes(smmCountryFilter.toLowerCase())) return false;
-    if (smmComplianceFilter === "online" && !onlineIds.has(s.id)) return false;
-    if (smmComplianceFilter === "logged" && !hasLoggedRecent(s.id)) return false;
-    if (smmComplianceFilter === "missing" && hasLoggedRecent(s.id)) return false;
     return true;
   });
 
-  // Filtered Assets by SM Platform & Country
-  const visibleAssets = filteredAssets.filter((a) => {
-    if (q && !(a.account_id || "").toLowerCase().includes(q) && !(a.platform || "").toLowerCase().includes(q)) return false;
+  const visibleAssets = assets.filter((a: any) => {
+    if (q && !getAssetAccountName(a).toLowerCase().includes(q) && !(a.account_id || "").toLowerCase().includes(q)) return false;
     if (assetPlatformFilter !== "all" && (a.platform || "").toLowerCase() !== assetPlatformFilter.toLowerCase()) return false;
     if (assetCountryFilter !== "all" && !(a.country_language || "").toLowerCase().includes(assetCountryFilter.toLowerCase())) return false;
     return true;
@@ -432,139 +431,89 @@ export default function AdminControlCenter() {
   const activeSpotlightSmm = spotlightSmm ? profiles.find((p) => p.id === spotlightSmm.id) || spotlightSmm : null;
 
   return (
-    <div className={`min-h-screen ${currentTheme.shellBg} p-3 sm:p-6 md:p-8 pb-28 md:pb-12 font-sans transition-colors duration-500`}>
+    <div className={`min-h-screen ${currentTheme.shellBg} p-3 sm:p-6 md:p-8 pb-28 md:pb-12 font-sans`}>
       <div className="max-w-7xl mx-auto space-y-5">
-        {/* Clean, Authoritative Admin Control Center Header */}
         <div className="flex flex-col lg:flex-row lg:justify-between lg:items-center border-b border-zinc-800/90 pb-5 gap-4">
           <div>
             <div className="flex flex-wrap items-center gap-2">
               <span className={`text-[10px] uppercase tracking-widest border px-2.5 py-0.5 rounded-full font-bold ${currentTheme.badge}`}>
                 Admin Control Center
               </span>
-              <LiveOnlineRosterPill
-                onlineUsers={onlineUsers}
-                profiles={profiles}
-                onSelectTl={(tl) => setSpotlightTl(tl)}
-                onSelectSmm={(smm) => setSpotlightSmm(smm)}
-              />
+              <LiveOnlineRosterPill onlineUsers={onlineUsers} profiles={profiles} onSelectTl={(tl: any) => setSpotlightTl(tl)} onSelectSmm={(smm: any) => setSpotlightSmm(smm)} />
               <span className={`text-[10px] font-mono px-2.5 py-0.5 rounded-full border ${liveSyncPulse ? "bg-emerald-500/30 text-emerald-300" : "bg-zinc-900 border-zinc-800 text-zinc-400"}`}>
-                ⚡ 169-USER STREAM READY
+                LIVE SYNC
               </span>
             </div>
-            <h1 className="text-2xl sm:text-3xl font-bold text-white mt-2 tracking-tight">Admin Control Center</h1>
+            <h1 className="text-2xl sm:text-3xl font-bold text-white mt-2">Admin Control Center</h1>
             <p className="text-xs text-zinc-400 mt-0.5">
-              Team Leaders: <b className="text-white">{teamLeaders.length}</b> • SMM Handlers: <b className="text-white">{allSmms.length}</b> • Social Media Assets: <b className="text-white">{filteredAssets.length}</b>
+              Team Leaders: <b className="text-white">{teamLeaders.length}</b> • SMM Handlers: <b className="text-white">{allSmms.length}</b> • Total Accounts: <b className="text-white">{assets.length}</b>
             </p>
           </div>
 
-          {/* Sleek Consolidated Command Bar */}
           <div className="flex flex-wrap items-center gap-2">
-            <GlobalCommandPalette
-              profiles={profiles}
-              assets={assets}
-              onSelectTl={(tl) => setSpotlightTl(tl)}
-              onSelectSmm={(smm) => setSpotlightSmm(smm)}
-              onSelectAsset={(a) => setInspectingAsset(a)}
-            />
-
+            <GlobalCommandPalette profiles={profiles} assets={assets} onSelectTl={(tl: any) => setSpotlightTl(tl)} onSelectSmm={(smm: any) => setSpotlightSmm(smm)} onSelectAsset={(a: any) => setInspectingAsset(a)} />
             <ThemePickerDropdown themeId={themeId} onChange={changeTheme} />
-
-            <button
-              onClick={() => setActiveTab("campaign")}
-              className={`px-4 py-2 rounded-xl text-xs font-bold shadow-lg active:scale-95 transition-all ${currentTheme.accentBg}`}
-            >
-              🎯 Give Campaign
+            <button type="button" onClick={() => setActiveTab("campaign")} className={`px-4 py-2 rounded-xl text-xs font-bold shadow-lg ${currentTheme.accentBg}`}>
+              Assign Campaign
             </button>
-
-            <button
-              onClick={() => setShowProvisionModal(true)}
-              className="px-3.5 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-700 text-xs text-white font-bold transition-all"
-            >
-              + New User
+            <button type="button" onClick={() => setShowProvisionModal(true)} className="px-3.5 py-2 rounded-xl bg-zinc-900 border border-zinc-700 text-xs text-white font-bold">
+              + Add User
             </button>
-
             <div className="relative">
-              <button
-                type="button"
-                onClick={() => setShowExportMenu(!showExportMenu)}
-                className="px-3.5 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-700 text-xs text-emerald-300 font-bold flex items-center gap-1.5"
-              >
-                <span>⬇ Export CSV</span>
-                <span className="text-[10px]">▼</span>
+              <button type="button" onClick={() => setShowExportMenu(!showExportMenu)} className="px-3.5 py-2 rounded-xl bg-zinc-900 border border-zinc-700 text-xs text-emerald-300 font-bold">
+                Export CSV
               </button>
               {showExportMenu && (
-                <div className="absolute right-0 mt-2 w-72 bg-zinc-950 border border-zinc-700 rounded-2xl p-4 shadow-2xl space-y-3 z-50 animate-in fade-in zoom-in-95 duration-200">
-                  <div className="text-xs font-bold text-white border-b border-zinc-800 pb-2">
-                    ⬇ Export Master CSV Report
-                  </div>
-                  <div>
-                    <label className="text-[10px] uppercase font-bold text-zinc-400 block mb-1">1. Sheet Tab</label>
-                    <select value={csvSheetTab} onChange={(e) => setCsvSheetTab(e.target.value as SheetTabOption)} className="w-full rounded-xl bg-black border border-zinc-800 p-2 text-xs text-white">
-                      <option value="all">All Platforms Combined</option>
-                      <option value="twitter">Tab: Twitter(X)</option>
-                      <option value="facebook">Tab: Facebook</option>
-                      <option value="instagram">Tab: Instagram</option>
-                      <option value="tiktok">Tab: Tiktok</option>
-                      <option value="achievements">Tab: Achievements</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="text-[10px] uppercase font-bold text-zinc-400 block mb-1">2. Horizon</label>
-                    <select value={csvHorizon} onChange={(e) => setCsvHorizon(e.target.value as TimeHorizon)} className="w-full rounded-xl bg-black border border-zinc-800 p-2 text-xs text-white uppercase">
-                      <option value="weekly">Weekly</option>
-                      <option value="monthly">Monthly</option>
-                      <option value="quarterly">Quarterly</option>
-                      <option value="yearly">Yearly</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="text-[10px] uppercase font-bold text-zinc-400 block mb-1">3. Campaign Filter</label>
-                    <select value={projectFilter} onChange={(e) => setProjectFilter(e.target.value)} className="w-full rounded-xl bg-black border border-zinc-800 p-2 text-xs text-white">
-                      <option value="All">All Campaigns</option>
-                      {uniqueProjects.map((proj) => <option key={proj} value={proj}>{proj}</option>)}
-                    </select>
-                  </div>
-                  <button
-                    type="button"
+                <div className="absolute right-0 mt-2 w-72 bg-zinc-950 border border-zinc-700 rounded-2xl p-4 shadow-2xl space-y-3 z-50">
+                  <div className="text-xs font-bold text-white border-b border-zinc-800 pb-2">Export Performance CSV</div>
+                  <select value={csvSheetTab} onChange={(e) => setCsvSheetTab(e.target.value as SheetTabOption)} className="w-full rounded-xl bg-black border border-zinc-800 p-2 text-xs text-white">
+                    <option value="all">All Platforms</option>
+                    <option value="twitter">Twitter(X)</option>
+                    <option value="facebook">Facebook</option>
+                    <option value="instagram">Instagram</option>
+                    <option value="tiktok">TikTok</option>
+                    <option value="achievements">Achievements</option>
+                  </select>
+                  <select value={csvHorizon} onChange={(e) => setCsvHorizon(e.target.value as TimeHorizon)} className="w-full rounded-xl bg-black border border-zinc-800 p-2 text-xs text-white uppercase">
+                    <option value="weekly">Weekly</option><option value="monthly">Monthly</option><option value="quarterly">Quarterly</option><option value="yearly">Yearly</option>
+                  </select>
+                  <ActionButton
                     onClick={() => {
-                      exportHorizonCSV({ horizon: csvHorizon, sheetTab: csvSheetTab, metrics, assets, profiles, projectFilter });
+                      exportHorizonCSV({ horizon: csvHorizon, sheetTab: csvSheetTab, metrics, assets, profiles });
                       setShowExportMenu(false);
                     }}
+                    loadingText="Exporting..."
                     className={`w-full py-2.5 rounded-xl font-bold text-xs ${currentTheme.accentBg}`}
                   >
-                    ⬇ Download Master CSV
-                  </button>
+                    Download CSV
+                  </ActionButton>
                 </div>
               )}
             </div>
-
-            <button
-              onClick={() => setShowAdminSettings(true)}
-              className="px-3.5 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-700 text-xs text-zinc-200 font-bold"
-            >
-              ⚙ Settings
+            <button type="button" onClick={() => setShowAdminSettings(true)} className="px-3.5 py-2 rounded-xl bg-zinc-900 border border-zinc-700 text-xs text-zinc-200 font-bold">
+              Settings
             </button>
           </div>
         </div>
 
-        {statusMsg && <div className="p-3 rounded-xl bg-emerald-500/15 border border-emerald-500/40 text-emerald-300 text-xs text-center font-bold animate-pulse">{statusMsg}</div>}
+        {statusMsg && <div className="p-3 rounded-xl bg-emerald-500/15 border border-emerald-500/40 text-emerald-300 text-xs text-center font-bold">{statusMsg}</div>}
 
-        {/* Unified Authoritative Navigation Bar */}
         <div className="hidden md:flex flex-wrap justify-between items-center gap-2 bg-zinc-950/90 border border-zinc-800/90 p-2.5 rounded-2xl">
           <div className="flex flex-wrap gap-1.5">
             {[
-              { id: "tls", label: `🛡 Team Leaders (${teamLeaders.length})` },
-              { id: "smms", label: `👤 SMMs (${allSmms.length})` },
-              { id: "assets", label: `🗂 Assets (${filteredAssets.length})` },
-              { id: "campaign", label: "🎯 Give Campaign" },
-              { id: "graphs", label: "📈 Leaderboard & Graphs" },
-              { id: "archives", label: `🗄 Archives (${auditLogs.length})` },
-              { id: "achievements", label: `🏆 Milestones (${globalAchievements.length})` },
+              { id: "tls", label: `Team Leaders (${teamLeaders.length})` },
+              { id: "smms", label: `SMM Handlers (${allSmms.length})` },
+              { id: "assets", label: `Accounts (${assets.length})` },
+              { id: "campaign", label: "Assign Campaign" },
+              { id: "graphs", label: "Leaderboard & Graphs" },
+              { id: "archives", label: `Archives (${auditLogs.length})` },
+              { id: "achievements", label: `Milestones (${globalAchievements.length})` },
             ].map((t: any) => (
               <button
                 key={t.id}
+                type="button"
                 onClick={() => setActiveTab(t.id)}
-                className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all duration-200 ${
+                className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all ${
                   activeTab === t.id ? `${currentTheme.accentBg} shadow-md` : "bg-zinc-900/70 text-zinc-400 hover:text-white"
                 }`}
               >
@@ -576,70 +525,44 @@ export default function AdminControlCenter() {
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Filter current view..."
-            className="rounded-xl bg-black border border-zinc-800 px-3 py-1.5 text-xs text-white outline-none focus:border-emerald-500 w-52"
+            placeholder="Search..."
+            className="rounded-xl bg-black border border-zinc-800 px-3 py-1.5 text-xs text-white outline-none w-52"
           />
         </div>
 
-        {/* TAB 1: TEAM LEADERS (WITH LIVE ONLINE BADGES) */}
         {activeTab === "tls" && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 animate-in fade-in duration-300">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
             {teamLeaders
-              .filter((tl) => !q || (tl.full_name || "").toLowerCase().includes(q) || (tl.country || "").toLowerCase().includes(q))
-              .map((tl) => {
+              .filter((tl: any) => !q || (tl.full_name || "").toLowerCase().includes(q) || (tl.country || "").toLowerCase().includes(q))
+              .map((tl: any) => {
                 const tlSmms = allSmms.filter((s) => s.team_leader_id === tl.id || (s.team_leader_ids && s.team_leader_ids.includes(tl.id)));
-                const onlineSquadCount = tlSmms.filter((s) => onlineIds.has(s.id)).length;
-                const tlAssets = filteredAssets.filter((a) => a.team_leader_id === tl.id || tlSmms.some((s) => s.id === a.smm_id));
-                const tlLogs = metrics.filter((m) => tlAssets.some((a) => a.id === m.asset_id));
+                const tlAssets = assets.filter((a: any) => a.team_leader_id === tl.id || tlSmms.some((s) => s.id === a.smm_id));
+                const tlLogs = metrics.filter((m) => tlAssets.some((a: any) => a.id === m.asset_id));
                 const impr = tlLogs.reduce((sum, x) => sum + (x.impressions || 0), 0);
-                const isTlOnline = onlineIds.has(tl.id);
 
                 return (
                   <div
                     key={tl.id}
                     onClick={() => setSpotlightTl(tl)}
-                    className={`group cursor-pointer rounded-3xl p-6 bg-gradient-to-b from-zinc-900/70 via-zinc-950 to-black border transition-all duration-300 hover:-translate-y-2 ${currentTheme.glow} space-y-4 ${
-                      isTlOnline ? "border-emerald-500/60" : "border-zinc-800"
-                    }`}
+                    className="cursor-pointer rounded-3xl p-6 bg-zinc-950 border border-zinc-800 hover:border-emerald-400 transition-all hover:-translate-y-1 space-y-4"
                   >
                     <div className="flex justify-between items-start">
                       <div>
-                        <div className="flex items-center gap-2">
-                          <span className={`text-[10px] uppercase tracking-widest px-2.5 py-0.5 rounded-full border font-bold ${currentTheme.badge}`}>
-                            🛡 Team Leader
-                          </span>
-                          {isTlOnline && (
-                            <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-bold">
-                              🟢 ONLINE
-                            </span>
-                          )}
-                        </div>
+                        <span className={`text-[10px] uppercase px-2.5 py-0.5 rounded-full border font-bold ${currentTheme.badge}`}>
+                          Team Leader
+                        </span>
                         <h3 className="font-bold text-xl text-white mt-2">{tl.full_name}</h3>
-                        <p className="text-xs text-zinc-400 mt-0.5">🌍 {tl.country}</p>
+                        <p className="text-xs text-zinc-400 mt-0.5">{tl.country}</p>
                       </div>
-                      <button
-                        type="button"
-                        onClick={(e) => { e.stopPropagation(); openEditEmployee(tl); }}
-                        className="px-3 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-700 text-xs text-zinc-200 font-bold"
-                      >
-                        ✎ Edit
+                      <button type="button" onClick={(e) => { e.stopPropagation(); openEditEmployee(tl); }} className="px-3 py-1.5 rounded-xl bg-zinc-900 border border-zinc-700 text-xs text-zinc-200 font-bold">
+                        Edit
                       </button>
                     </div>
 
-                    <div className="grid grid-cols-3 gap-2 p-3.5 rounded-2xl bg-black/80 border border-zinc-900 font-mono text-xs">
-                      <div>
-                        <span className="text-[9px] text-zinc-500 block">SMM SQUAD</span>
-                        <span className="text-emerald-400 font-bold text-base">
-                          {tlSmms.length} <span className="text-[10px] text-zinc-400">({onlineSquadCount}🟢)</span>
-                        </span>
-                      </div>
-                      <div><span className="text-[9px] text-zinc-500 block">ASSETS</span><span className="text-purple-400 font-bold text-base">{tlAssets.length}</span></div>
-                      <div><span className="text-[9px] text-zinc-500 block">IMPR</span><span className="text-blue-400 font-bold text-base">{impr.toLocaleString()}</span></div>
-                    </div>
-
-                    <div className="flex justify-between items-center text-xs text-zinc-400 group-hover:text-white pt-1">
-                      <span>Tap to open Squad Window</span>
-                      <span className="font-bold">↗</span>
+                    <div className="grid grid-cols-3 gap-2 p-3.5 rounded-2xl bg-black border border-zinc-900 font-mono text-xs">
+                      <div><span className="text-[9px] text-zinc-500 block">SMM SQUAD</span><span className="text-emerald-400 font-bold text-base">{tlSmms.length}</span></div>
+                      <div><span className="text-[9px] text-zinc-500 block">ACCOUNTS</span><span className="text-purple-400 font-bold text-base">{tlAssets.length}</span></div>
+                      <div><span className="text-[9px] text-zinc-500 block">VIEWS</span><span className="text-blue-400 font-bold text-base">{impr.toLocaleString()}</span></div>
                     </div>
                   </div>
                 );
@@ -647,132 +570,76 @@ export default function AdminControlCenter() {
           </div>
         )}
 
-        {/* TAB 2: SMMs WITH SM FILTER, COUNTRY FILTER & WEEKLY COMPLIANCE FILTER */}
         {activeTab === "smms" && (
-          <div className="space-y-4 animate-in fade-in duration-300">
-            <div className="bg-zinc-950 border border-zinc-800 rounded-2xl p-4 space-y-3">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <span className="text-[10px] uppercase font-bold text-zinc-400 mr-1">1. Filter by SM:</span>
-                  {["all", ...PLATFORMS].map((p) => (
-                    <button
-                      key={p}
-                      type="button"
-                      onClick={() => setSmmPlatformFilter(p)}
-                      className={`px-2.5 py-1 rounded-lg text-xs font-bold uppercase border transition-all ${
-                        smmPlatformFilter === p ? `${currentTheme.accentBg} border-transparent` : "bg-black border-zinc-800 text-zinc-400 hover:text-white"
-                      }`}
-                    >
-                      {p === "all" ? "All SMs" : p}
-                    </button>
-                  ))}
-                </div>
-
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-[10px] uppercase font-bold text-zinc-400">2. Country:</span>
-                  <select
-                    value={smmCountryFilter}
-                    onChange={(e) => setSmmCountryFilter(e.target.value)}
-                    className="rounded-xl bg-black border border-zinc-800 px-3 py-1.5 text-xs text-white outline-none"
+          <div className="space-y-4">
+            <div className="bg-zinc-950 border border-zinc-800 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="text-[10px] uppercase font-bold text-zinc-400 mr-1">Filter by Platform:</span>
+                {["all", ...PLATFORMS].map((p) => (
+                  <button
+                    key={p}
+                    type="button"
+                    onClick={() => setSmmPlatformFilter(p)}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-bold uppercase border ${
+                      smmPlatformFilter === p ? `${currentTheme.accentBg} border-transparent` : "bg-black border-zinc-800 text-zinc-400"
+                    }`}
                   >
-                    <option value="all">All Countries ({allSmms.length})</option>
-                    {ALL_COUNTRIES.map((c) => <option key={c} value={c}>{c}</option>)}
-                  </select>
-                </div>
+                    {p === "all" ? "All" : p}
+                  </button>
+                ))}
               </div>
-
-              {/* Row 2: Live Presence & Friday Report Compliance Filter */}
-              <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-zinc-900">
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <span className="text-[10px] uppercase font-bold text-zinc-400 mr-1">3. Status & Weekly Compliance:</span>
-                  {[
-                    { id: "all", label: `All SMMs (${allSmms.length})` },
-                    { id: "online", label: "🟢 Online Now" },
-                    { id: "logged", label: "✅ Submitted This Week" },
-                    { id: "missing", label: "⏳ Missing Weekly Report" },
-                  ].map((f: any) => (
-                    <button
-                      key={f.id}
-                      type="button"
-                      onClick={() => setSmmComplianceFilter(f.id)}
-                      className={`px-3 py-1 rounded-lg text-xs font-bold border transition-all ${
-                        smmComplianceFilter === f.id ? "bg-blue-600 text-white border-blue-400" : "bg-black border-zinc-800 text-zinc-400 hover:text-white"
-                      }`}
-                    >
-                      {f.label}
-                    </button>
-                  ))}
-                </div>
-
-                <div className="flex gap-2">
-                  <button type="button" onClick={() => handleGlobalBatchLock(true)} className="px-3 py-1.5 rounded-xl bg-red-500/15 text-red-400 border border-red-500/30 text-xs font-bold">🔒 Lock All</button>
-                  <button type="button" onClick={() => handleGlobalBatchLock(false)} className="px-3 py-1.5 rounded-xl bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-xs font-bold">🔓 Unlock All</button>
-                </div>
+              <div className="flex items-center gap-2">
+                <select value={smmCountryFilter} onChange={(e) => setSmmCountryFilter(e.target.value)} className="rounded-xl bg-black border border-zinc-800 px-3 py-1.5 text-xs text-white">
+                  <option value="all">All Countries</option>
+                  {ALL_COUNTRIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                </select>
+                <ActionButton onClick={() => handleGlobalBatchLock(true)} loadingText="..." className="px-3 py-1.5 rounded-xl bg-red-500/15 text-red-400 border border-red-500/30 text-xs font-bold">
+                  Lock All
+                </ActionButton>
+                <ActionButton onClick={() => handleGlobalBatchLock(false)} loadingText="..." className="px-3 py-1.5 rounded-xl bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-xs font-bold">
+                  Unlock All
+                </ActionButton>
               </div>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-              {visibleSmms.map((smm) => {
-                const smmAssets = filteredAssets.filter((a) => a.smm_id === smm.id);
-                const smmLogs = metrics.filter((m) => smmAssets.some((a) => a.id === m.asset_id));
+              {visibleSmms.map((smm: any) => {
+                const smmAssets = assets.filter((a: any) => a.smm_id === smm.id);
+                const smmLogs = metrics.filter((m) => smmAssets.some((a: any) => a.id === m.asset_id));
                 const totalImpr = smmLogs.reduce((s, x) => s + Number(x.impressions || 0), 0);
-                const totalEng = smmLogs.reduce((s, x) => s + Number(x.engagements || 0), 0);
                 const tl = teamLeaders.find((t) => t.id === smm.team_leader_id);
-                const isOnline = onlineIds.has(smm.id);
-                const loggedThisWeek = hasLoggedRecent(smm.id);
 
                 return (
                   <div
                     key={smm.id}
                     onClick={() => setSpotlightSmm(smm)}
-                    className={`group cursor-pointer rounded-3xl p-6 bg-gradient-to-b from-zinc-900/70 via-zinc-950 to-black border transition-all duration-300 hover:-translate-y-2 shadow-xl space-y-4 ${
-                      isOnline ? "border-emerald-500/50" : "border-zinc-800 hover:border-blue-400"
-                    }`}
+                    className="cursor-pointer rounded-3xl p-6 bg-zinc-950 border border-zinc-800 hover:border-blue-400 transition-all hover:-translate-y-1 space-y-4"
                   >
                     <div className="flex justify-between items-start gap-2">
                       <div>
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          <span className="text-[10px] uppercase px-2 py-0.5 rounded-full bg-blue-500/15 border border-blue-500/30 text-blue-300 font-bold">
-                            👤 SMM
-                          </span>
-                          {isOnline && (
-                            <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-bold">
-                              🟢 ONLINE
-                            </span>
-                          )}
-                          <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${loggedThisWeek ? "bg-emerald-500/15 text-emerald-300" : "bg-amber-500/15 text-amber-300"}`}>
-                            {loggedThisWeek ? "✅ Reported" : "⏳ Pending"}
-                          </span>
-                        </div>
+                        <span className="text-[10px] uppercase px-2 py-0.5 rounded-full bg-blue-500/15 text-blue-300 font-bold">
+                          SMM {tl ? `• TL: ${tl.full_name}` : ""}
+                        </span>
                         <h3 className="text-xl font-bold text-white mt-2">{smm.full_name}</h3>
-                        <p className="text-xs text-zinc-400 mt-0.5">
-                          🌍 {smm.country} {tl ? `• TL: ${tl.full_name}` : ""}
-                        </p>
+                        <p className="text-xs text-zinc-400 mt-0.5">{smm.country}</p>
                       </div>
-
                       <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
-                        <button
-                          type="button"
+                        <ActionButton
                           onClick={() => handleToggleSmmLock(smm)}
+                          loadingText="..."
                           className={`px-2.5 py-1.5 rounded-xl text-xs font-bold border ${
                             smm.is_locked ? "bg-red-500/20 border-red-500/40 text-red-400" : "bg-emerald-500/20 border-emerald-500/40 text-emerald-400"
                           }`}
                         >
-                          {smm.is_locked ? "🔒" : "🔓"}
-                        </button>
-                        <button type="button" onClick={() => openEditEmployee(smm)} className="px-3 py-1.5 rounded-xl bg-zinc-900 border border-zinc-700 text-xs text-zinc-200 font-bold">✎ Edit</button>
+                          {smm.is_locked ? "Locked" : "Open"}
+                        </ActionButton>
+                        <button type="button" onClick={() => openEditEmployee(smm)} className="px-3 py-1.5 rounded-xl bg-zinc-900 border border-zinc-700 text-xs text-zinc-200 font-bold">Edit</button>
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-3 gap-2 p-3.5 rounded-2xl bg-black/80 border border-zinc-900 font-mono text-xs">
-                      <div><span className="text-[9px] text-zinc-500 block">ASSETS</span><span className="text-white font-bold text-base">{smmAssets.length}</span></div>
-                      <div><span className="text-[9px] text-zinc-500 block">IMPR</span><span className="text-blue-400 font-bold text-base">{totalImpr.toLocaleString()}</span></div>
-                      <div><span className="text-[9px] text-zinc-500 block">ENG</span><span className="text-purple-400 font-bold text-base">{totalEng.toLocaleString()}</span></div>
-                    </div>
-
-                    <div className="flex justify-between items-center text-xs text-zinc-400 group-hover:text-blue-300 pt-1">
-                      <span>SM: {(smm.platforms || ["twitter"]).join(", ").toUpperCase()}</span>
-                      <span className="font-bold">open Records ↗</span>
+                    <div className="grid grid-cols-2 gap-2 p-3.5 rounded-2xl bg-black border border-zinc-900 font-mono text-xs">
+                      <div><span className="text-[9px] text-zinc-500 block">ACCOUNTS</span><span className="text-white font-bold text-base">{smmAssets.length}</span></div>
+                      <div><span className="text-[9px] text-zinc-500 block">TOTAL VIEWS</span><span className="text-blue-400 font-bold text-base">{totalImpr.toLocaleString()}</span></div>
                     </div>
                   </div>
                 );
@@ -781,37 +648,28 @@ export default function AdminControlCenter() {
           </div>
         )}
 
-        {/* TAB 3: ASSETS */}
         {activeTab === "assets" && (
-          <div className="space-y-4 animate-in fade-in duration-300">
+          <div className="space-y-4">
             <div className="bg-zinc-950 border border-zinc-800 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3">
               <div className="flex flex-wrap items-center gap-2">
-                <span className="text-[10px] uppercase font-bold text-zinc-400 mr-1">Filter Assets by SM:</span>
+                <span className="text-[10px] uppercase font-bold text-zinc-400 mr-1">Filter by Platform:</span>
                 {["all", ...PLATFORMS].map((p) => (
                   <button
                     key={p}
                     type="button"
                     onClick={() => setAssetPlatformFilter(p)}
-                    className={`px-2.5 py-1 rounded-lg text-xs font-bold uppercase border transition-all ${
-                      assetPlatformFilter === p ? `${currentTheme.accentBg} border-transparent` : "bg-black border-zinc-800 text-zinc-400 hover:text-white"
+                    className={`px-2.5 py-1 rounded-lg text-xs font-bold uppercase border ${
+                      assetPlatformFilter === p ? `${currentTheme.accentBg} border-transparent` : "bg-black border-zinc-800 text-zinc-400"
                     }`}
                   >
-                    {p === "all" ? "All SMs" : p}
+                    {p === "all" ? "All" : p}
                   </button>
                 ))}
               </div>
-
-              <div className="flex items-center gap-2">
-                <span className="text-[10px] uppercase font-bold text-zinc-400">Filter by Country:</span>
-                <select
-                  value={assetCountryFilter}
-                  onChange={(e) => setAssetCountryFilter(e.target.value)}
-                  className="rounded-xl bg-black border border-zinc-800 px-3 py-1.5 text-xs text-white outline-none"
-                >
-                  <option value="all">All Countries ({filteredAssets.length})</option>
-                  {ALL_COUNTRIES.map((c) => <option key={c} value={c}>{c}</option>)}
-                </select>
-              </div>
+              <select value={assetCountryFilter} onChange={(e) => setAssetCountryFilter(e.target.value)} className="rounded-xl bg-black border border-zinc-800 px-3 py-1.5 text-xs text-white">
+                <option value="all">All Countries</option>
+                {ALL_COUNTRIES.map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -822,28 +680,30 @@ export default function AdminControlCenter() {
                   <div
                     key={asset.id}
                     onClick={() => setInspectingAsset(asset)}
-                    className={`group cursor-pointer bg-zinc-950 border rounded-3xl p-5 space-y-3 relative overflow-hidden transition-all duration-300 hover:-translate-y-1.5 ${
+                    className={`cursor-pointer bg-zinc-950 border rounded-3xl p-5 space-y-3 relative transition-all hover:-translate-y-1 ${
                       isSuspended ? "border-red-500/50 bg-red-950/10" : "border-zinc-800 hover:border-purple-400"
                     }`}
                   >
-                    <button
-                      type="button"
-                      onClick={(e) => { e.stopPropagation(); handleSetAssetStatus(asset, isSuspended ? "active" : "suspended"); }}
-                      className={`absolute top-3.5 right-3.5 px-2.5 py-0.5 rounded-full border text-[10px] font-bold ${
-                        isSuspended ? "bg-red-500/20 border-red-500/40 text-red-300" : "bg-emerald-500/20 border-emerald-500/40 text-emerald-300"
-                      }`}
-                    >
-                      {isSuspended ? "⚠ SUSP" : "● ACTV"} ⇄
-                    </button>
+                    <div className="absolute top-3.5 right-3.5" onClick={(e) => e.stopPropagation()}>
+                      <ActionButton
+                        onClick={() => handleSetAssetStatus(asset, isSuspended ? "active" : "suspended")}
+                        loadingText="..."
+                        className={`px-2.5 py-0.5 rounded-full border text-[10px] font-bold ${
+                          isSuspended ? "bg-red-500/20 border-red-500/40 text-red-300" : "bg-emerald-500/20 border-emerald-500/40 text-emerald-300"
+                        }`}
+                      >
+                        {isSuspended ? "Suspended" : "Active"}
+                      </ActionButton>
+                    </div>
                     <span className="px-2.5 py-0.5 rounded bg-purple-500/20 text-purple-300 text-[10px] font-bold uppercase">{asset.platform}</span>
-                    <h3 className="text-lg font-bold text-white mt-1.5 truncate pr-20">{asset.account_id}</h3>
-                    <p className="text-xs text-zinc-400">🌍 {asset.country_language} • 🗣 {asset.language || "English"} • 👤 {smm?.full_name || "Unassigned"}</p>
+                    <h3 className="text-lg font-bold text-white mt-1.5 truncate pr-24">{getAssetAccountName(asset)}</h3>
+                    <p className="text-xs text-zinc-400 font-mono">{asset.account_id} • {asset.country_language} • {smm?.full_name || "Unassigned"}</p>
                     <div className="grid grid-cols-2 gap-2 pt-2" onClick={(e) => e.stopPropagation()}>
-                      <button type="button" onClick={() => setInspectingAsset(asset)} className="py-2 bg-purple-600/20 hover:bg-purple-600 text-purple-300 hover:text-white font-bold rounded-xl text-xs">
-                        🔍 open Asset
+                      <button type="button" onClick={() => setInspectingAsset(asset)} className="py-2 bg-purple-600/20 text-purple-300 font-bold rounded-xl text-xs">
+                        View Details
                       </button>
-                      <button type="button" onClick={() => setEditingAsset(asset)} className="py-2 bg-zinc-900 hover:bg-emerald-500 text-emerald-400 hover:text-black font-bold rounded-xl text-xs">
-                        ✎ Edit All 15
+                      <button type="button" onClick={() => setEditingAsset(asset)} className="py-2 bg-zinc-900 text-emerald-400 font-bold rounded-xl text-xs">
+                        Edit Account
                       </button>
                     </div>
                   </div>
@@ -853,76 +713,58 @@ export default function AdminControlCenter() {
           </div>
         )}
 
-        {/* TAB 4: GIVE CAMPAIGN */}
         {activeTab === "campaign" && (
-          <CampaignDispatchWizard actorId={adminProfile.id} teamLeaders={teamLeaders} smms={allSmms} assets={assets} onSuccess={(msg) => { setStatusMsg(msg); loadAllEnterpriseData(); setActiveTab("assets"); }} />
+          <CampaignDispatchWizard actorId={adminProfile.id} teamLeaders={teamLeaders} smms={allSmms} assets={assets} onSuccess={(msg: any) => { setStatusMsg(msg); loadAllEnterpriseData(); setActiveTab("assets"); }} />
         )}
 
-        {/* TAB 5: CONTRASTING LEADERBOARD & SUMMARY GRAPHS */}
         {activeTab === "graphs" && (
           <ExecutiveAnalyticsGraphs
-            assets={filteredAssets}
+            assets={assets}
             metrics={metrics}
             profiles={profiles}
-            onSelectAsset={(a) => setInspectingAsset(a)}
-            onSelectTl={(tl) => setSpotlightTl(tl)}
-            onSelectSmm={(smm) => setSpotlightSmm(smm)}
+            onSelectAsset={(a: any) => setInspectingAsset(a)}
+            onSelectTl={(tl: any) => setSpotlightTl(tl)}
+            onSelectSmm={(smm: any) => setSpotlightSmm(smm)}
             titlePrefix="Admin Control Center"
           />
         )}
 
-        {/* TAB 6: ARCHIVES */}
         {activeTab === "archives" && (
-          <ForensicArchiveRecords logs={auditLogs} onRestore={handleRestoreArchive} />
+          <ForensicArchiveVault logs={auditLogs} onRestore={handleRestoreArchive} />
         )}
 
-        {/* TAB 7: CUSTOM ADMIN MILESTONES & ACHIEVEMENTS */}
         {activeTab === "achievements" && (
-          <div className="space-y-6 animate-in fade-in duration-300">
+          <div className="space-y-6">
             <form onSubmit={handleCreateMilestone} className="bg-zinc-950 border border-yellow-500/40 rounded-3xl p-5 sm:p-6 space-y-4">
-              <div className="flex justify-between items-center">
-                <div>
-                  <span className="text-[10px] uppercase tracking-widest bg-yellow-500/20 text-yellow-300 px-2.5 py-0.5 rounded-full font-bold">
-                    Custom Milestone Creator
-                  </span>
-                  <h3 className="text-lg font-bold text-white mt-1">🏆 Create Custom Admin Milestone Achievement</h3>
-                </div>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-5 gap-3">
-                <input type="text" required value={msTitle} onChange={(e) => setMsTitle(e.target.value)} placeholder="Milestone Title (e.g. 50K Club)" className="sm:col-span-2 rounded-xl bg-black border border-zinc-800 p-3 text-xs text-white" />
+              <h3 className="text-lg font-bold text-white">Create Custom Milestone</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                <input type="text" required value={msTitle} onChange={(e) => setMsTitle(e.target.value)} placeholder="Milestone Title" className="rounded-xl bg-black border border-zinc-800 p-3 text-xs text-white" />
                 <select value={msMetric} onChange={(e) => setMsMetric(e.target.value)} className="rounded-xl bg-black border border-zinc-800 p-3 text-xs text-white uppercase">
-                  <option value="engagements">Metric: Engagements</option>
-                  <option value="impressions">Metric: Impressions</option>
-                  <option value="followers">Metric: Total Followers</option>
-                  <option value="posts">Metric: Posts Published</option>
-                  <option value="assets">Metric: Active Assets</option>
+                  <option value="views">Total Views</option>
+                  <option value="likes">Total Likes</option>
+                  <option value="followers">Total Followers</option>
+                  <option value="posts">Total Posts</option>
+                  <option value="accounts">Total Accounts</option>
                 </select>
                 <input type="number" required value={msTarget} onChange={(e) => setMsTarget(e.target.value)} placeholder="Target Number" className="rounded-xl bg-black border border-zinc-800 p-3 text-xs text-white" />
-                <button type="submit" className="py-3 bg-yellow-400 hover:bg-yellow-300 text-black font-bold rounded-xl text-xs">
-                  + Publish Milestone
-                </button>
+                <ActionButton type="submit" loadingText="Publishing..." className="py-3 bg-yellow-400 text-black font-bold rounded-xl text-xs">
+                  Publish Milestone
+                </ActionButton>
               </div>
             </form>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               {globalAchievements.map((ach: any) => (
-                <div key={ach.id} className={`rounded-2xl p-5 border relative ${ach.unlocked ? "bg-gradient-to-b from-yellow-950/30 to-zinc-950 border-yellow-500/60" : "bg-zinc-950 border-zinc-800 opacity-80"}`}>
+                <div key={ach.id} className={`rounded-2xl p-5 border ${ach.unlocked ? "bg-gradient-to-b from-yellow-950/30 to-zinc-950 border-yellow-500/60" : "bg-zinc-950 border-zinc-800"}`}>
                   <div className="flex justify-between items-center">
-                    <span className="text-3xl">{ach.icon}</span>
+                    <span className="text-2xl">{ach.icon}</span>
                     <div className="flex items-center gap-2">
-                      <span className={`text-[10px] font-bold uppercase px-2.5 py-0.5 rounded-full ${ach.unlocked ? "bg-yellow-400 text-black" : "bg-zinc-900 text-zinc-400"}`}>
-                        {ach.unlocked ? "✓ UNLOCKED" : `${ach.progress}%`}
-                      </span>
-                      {ach.isCustom && (
-                        <button type="button" onClick={() => handleDeleteMilestone(ach.id)} className="text-xs text-red-400 hover:underline">✕</button>
-                      )}
+                      <span className="text-[10px] font-bold uppercase px-2.5 py-0.5 rounded-full bg-zinc-900 text-zinc-300">{ach.unlocked ? "COMPLETED" : `${ach.progress}%`}</span>
+                      {ach.isCustom && <button type="button" onClick={() => handleDeleteMilestone(ach.id)} className="text-xs text-red-400">Delete</button>}
                     </div>
                   </div>
                   <h3 className="text-base font-bold text-white mt-3">{ach.title}</h3>
                   <p className="text-xs text-zinc-400 mt-1">{ach.desc}</p>
-                  <div className="w-full h-1.5 bg-zinc-900 rounded-full overflow-hidden mt-3">
-                    <div className="h-full bg-yellow-400 rounded-full" style={{ width: `${ach.progress}%` }} />
-                  </div>
                   <div className="mt-2 text-xs font-mono text-yellow-300">{ach.stat}</div>
                 </div>
               ))}
@@ -931,32 +773,16 @@ export default function AdminControlCenter() {
         )}
       </div>
 
-      {/* MOBILE STICKY BOTTOM DOCK */}
-      <div className="md:hidden fixed bottom-0 inset-x-0 z-30 bg-zinc-950/95 backdrop-blur-xl border-t border-zinc-800 px-1.5 py-1.5 flex justify-around items-center">
-        {[
-          { id: "tls", icon: "🛡", label: "TLs" },
-          { id: "smms", icon: "👤", label: "SMMs" },
-          { id: "assets", icon: "🗂", label: "Assets" },
-          { id: "graphs", icon: "📈", label: "Leaders" },
-          { id: "archives", icon: "🗄", label: "Archives" },
-          { id: "achievements", icon: "🏆", label: "Goals" },
-        ].map((t: any) => (
-          <button key={t.id} onClick={() => setActiveTab(t.id)} className={`flex flex-col items-center py-1 px-2 rounded-xl ${activeTab === t.id ? "text-emerald-400 font-bold bg-emerald-500/10" : "text-zinc-500"}`}>
-            <span className="text-base">{t.icon}</span><span className="text-[10px]">{t.label}</span>
-          </button>
-        ))}
-      </div>
-
       {activeSpotlightTl && (
         <TeamLeaderSpotlightModal
           tl={activeSpotlightTl}
           smms={allSmms}
-          assets={filteredAssets}
+          assets={assets}
           metrics={metrics}
           onClose={() => setSpotlightTl(null)}
-          onSelectSmm={(smm) => setSpotlightSmm(smm)}
-          onEditTl={(tl) => openEditEmployee(tl)}
-          onEditSmm={(smm) => openEditEmployee(smm)}
+          onSelectSmm={(smm: any) => setSpotlightSmm(smm)}
+          onEditTl={(tl: any) => openEditEmployee(tl)}
+          onEditSmm={(smm: any) => openEditEmployee(smm)}
           onToggleSmmLock={handleToggleSmmLock}
         />
       )}
@@ -965,19 +791,19 @@ export default function AdminControlCenter() {
         <SMMSpotlightModal
           smm={activeSpotlightSmm}
           tlName={teamLeaders.find((t) => t.id === activeSpotlightSmm.team_leader_id)?.full_name}
-          assets={filteredAssets}
+          assets={assets}
           metrics={metrics}
           onClose={() => setSpotlightSmm(null)}
-          onSelectAsset={(a) => setInspectingAsset(a)}
-          onEditAsset={(a) => setEditingAsset(a)}
+          onSelectAsset={(a: any) => setInspectingAsset(a)}
+          onEditAsset={(a: any) => setEditingAsset(a)}
           onToggleAssetStatus={handleSetAssetStatus}
-          onEditSmm={(smm) => openEditEmployee(smm)}
+          onEditSmm={(smm: any) => openEditEmployee(smm)}
           onToggleSmmLock={handleToggleSmmLock}
         />
       )}
 
       {inspectingAsset && (
-        <AssetGrowthModal asset={inspectingAsset} metrics={metrics} profiles={profiles} onClose={() => setInspectingAsset(null)} onEdit={(a) => setEditingAsset(a)} onToggleStatus={handleSetAssetStatus} />
+        <AssetGrowthModal asset={inspectingAsset} metrics={metrics} profiles={profiles} onClose={() => setInspectingAsset(null)} onEdit={(a: any) => setEditingAsset(a)} onToggleStatus={handleSetAssetStatus} />
       )}
 
       {editingAsset && (
@@ -985,17 +811,21 @@ export default function AdminControlCenter() {
       )}
 
       {showAdminSettings && (
-        <div className="fixed inset-0 z-50 flex justify-end bg-black/80 backdrop-blur-md animate-in fade-in duration-200" onClick={() => setShowAdminSettings(false)}>
-          <form onSubmit={handleSaveAdminOwnSettings} onClick={(e) => e.stopPropagation()} className="w-full max-w-lg bg-zinc-950 border-l border-emerald-500/40 h-full overflow-y-auto p-6 space-y-5 shadow-2xl">
+        <div className="fixed inset-0 z-50 flex justify-end bg-black/80 backdrop-blur-md" onClick={() => setShowAdminSettings(false)}>
+          <form onSubmit={handleSaveAdminOwnSettings} onClick={(e) => e.stopPropagation()} className="w-full max-w-lg bg-zinc-950 border-l border-emerald-500/40 h-full overflow-y-auto p-6 space-y-5">
             <div className="flex justify-between items-center border-b border-zinc-800 pb-4">
-              <h2 className="text-xl font-bold text-white">⚙ Admin Control Center Settings</h2>
-              <button type="button" onClick={() => setShowAdminSettings(false)} className="px-3 py-1 bg-zinc-900 text-xs text-zinc-300 rounded-xl">✕</button>
+              <h2 className="text-xl font-bold text-white">Admin Settings</h2>
+              <button type="button" onClick={() => setShowAdminSettings(false)} className="px-3 py-1 bg-zinc-900 text-xs text-zinc-300 rounded-xl">Close</button>
             </div>
-            <input type="text" required value={adminDisplayName} onChange={(e) => setAdminDisplayName(e.target.value)} placeholder="Admin Display Name" className="w-full rounded-xl bg-black border border-zinc-800 p-3 text-xs text-white" />
-            <FancyMultiSelect label="Admin Regions" options={ALL_COUNTRIES} selected={adminCountries} onChange={setAdminCountries} />
+            <input type="text" required value={adminDisplayName} onChange={(e) => setAdminDisplayName(e.target.value)} placeholder="Display Name" className="w-full rounded-xl bg-black border border-zinc-800 p-3 text-xs text-white" />
+            <FancyMultiSelect label="Regions" options={ALL_COUNTRIES} selected={adminCountries} onChange={setAdminCountries} />
             <input type="password" value={adminNewPass} onChange={(e) => setAdminNewPass(e.target.value)} placeholder="New Password (optional)" className="w-full rounded-xl bg-black border border-zinc-800 p-3 text-xs text-white" />
-            <button type="submit" className="w-full py-3.5 bg-emerald-500 text-black font-bold rounded-xl text-xs">Save Settings Live</button>
-            <button type="button" onClick={async () => { await supabase.auth.signOut(); setAdminProfile(null); }} className="w-full py-3 bg-zinc-900 text-red-400 font-bold rounded-xl text-xs">Sign Out</button>
+            <ActionButton type="submit" loadingText="Saving..." className="w-full py-3.5 bg-emerald-500 text-black font-bold rounded-xl text-xs">
+              Save Settings
+            </ActionButton>
+            <ActionButton onClick={async () => { await supabase.auth.signOut(); setAdminProfile(null); }} loadingText="Signing out..." className="w-full py-3 bg-zinc-900 text-red-400 font-bold rounded-xl text-xs">
+              Sign Out
+            </ActionButton>
           </form>
         </div>
       )}
@@ -1004,30 +834,36 @@ export default function AdminControlCenter() {
         <div className="fixed inset-0 z-[75] flex items-center justify-center bg-black/85 backdrop-blur-2xl p-3 sm:p-4" onClick={() => setEditingEmployee(null)}>
           <form onSubmit={handleSaveEmployee} onClick={(e) => e.stopPropagation()} className="w-full max-w-2xl bg-zinc-950 border border-emerald-500/50 rounded-3xl p-5 sm:p-6 space-y-4 max-h-[92vh] overflow-y-auto">
             <div className="flex justify-between items-center border-b border-zinc-800 pb-3">
-              <h3 className="text-lg font-bold text-white">✎ Edit {editingEmployee.full_name} ({editingEmployee.role.toUpperCase()})</h3>
-              <button type="button" onClick={() => setEditingEmployee(null)} className="px-3 py-1 bg-zinc-900 text-xs text-zinc-400 rounded-xl">✕</button>
+              <h3 className="text-lg font-bold text-white">Edit {editingEmployee.full_name}</h3>
+              <button type="button" onClick={() => setEditingEmployee(null)} className="px-3 py-1 bg-zinc-900 text-xs text-zinc-400 rounded-xl">Close</button>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <input type="text" required value={editingEmployee.full_name || ""} onChange={(e) => setEditingEmployee({ ...editingEmployee, full_name: e.target.value })} className="rounded-xl bg-black border border-zinc-800 p-2.5 text-xs text-white" />
               <select value={editingEmployee.role} onChange={(e) => setEditingEmployee({ ...editingEmployee, role: e.target.value })} className="rounded-xl bg-black border border-zinc-800 p-2.5 text-xs text-emerald-300 font-bold">
                 <option value="smm">SMM HANDLER</option><option value="team_leader">TEAM LEADER</option><option value="admin">ADMIN</option>
               </select>
-              <input type="password" value={empNewPass} onChange={(e) => setEmpNewPass(e.target.value)} placeholder="Reset Password (optional)" className="rounded-xl bg-black border border-zinc-800 p-2.5 text-xs text-white" />
+              <input type="password" value={empNewPass} onChange={(e) => setEmpNewPass(e.target.value)} placeholder="New Password (optional)" className="rounded-xl bg-black border border-zinc-800 p-2.5 text-xs text-white" />
             </div>
-            <FancyMultiSelect label="Social Media Platforms" options={PLATFORMS} selected={empPlatforms} onChange={setEmpPlatforms} />
-            <FancyMultiSelect label="Assigned Countries" options={ALL_COUNTRIES} selected={empCountries} onChange={setEmpCountries} />
+            <FancyMultiSelect label="Platforms" options={PLATFORMS} selected={empPlatforms} onChange={setEmpPlatforms} />
+            <FancyMultiSelect label="Countries" options={ALL_COUNTRIES} selected={empCountries} onChange={setEmpCountries} />
             {editingEmployee.role === "team_leader" && (
-              <FancyEntityMultiSelect label="SMM Handlers Under This Team Leader" items={allSmms.map((s) => ({ id: s.id, label: s.full_name, sub: `${s.country} • ${(s.platforms || ["twitter"]).join(", ")}` }))} selectedIds={empAssignedSmmIds} onChange={setEmpAssignedSmmIds} />
+              <FancyEntityMultiSelect label="Assigned SMM Handlers" items={allSmms.map((s) => ({ id: s.id, label: s.full_name, sub: s.country }))} selectedIds={empAssignedSmmIds} onChange={setEmpAssignedSmmIds} />
             )}
             {editingEmployee.role === "smm" && (
               <>
-                <FancyEntityMultiSelect label="Assigned Team Leader(s)" items={teamLeaders.map((tl) => ({ id: tl.id, label: tl.full_name, sub: tl.country }))} selectedIds={empTlIds} onChange={setEmpTlIds} />
-                <FancyEntityMultiSelect label="Social Media Assets Assigned" items={assets.map((a) => ({ id: a.id, label: `[${(a.platform || "").toUpperCase()}] ${a.account_id}`, sub: a.country_language }))} selectedIds={empAssignedAssetIds} onChange={setEmpAssignedAssetIds} />
+                <FancyEntityMultiSelect label="Assigned Team Leaders" items={teamLeaders.map((tl: any) => ({ id: tl.id, label: tl.full_name, sub: tl.country }))} selectedIds={empTlIds} onChange={setEmpTlIds} />
+                <FancyEntityMultiSelect label="Assigned Accounts" items={assets.map((a: any) => ({ id: a.id, label: `${getAssetAccountName(a)} (${a.account_id})`, sub: a.platform.toUpperCase() }))} selectedIds={empAssignedAssetIds} onChange={setEmpAssignedAssetIds} />
               </>
             )}
             <div className="flex gap-2 pt-2">
-              <button type="submit" className="flex-1 py-3 bg-emerald-500 text-black font-bold rounded-xl text-xs">Save Changes Live</button>
-              {editingEmployee.id !== adminProfile.id && <button type="button" onClick={() => handleDeleteEmployee(editingEmployee)} className="px-4 py-3 bg-red-500/20 text-red-400 font-bold rounded-xl text-xs">🗑 Delete</button>}
+              <ActionButton type="submit" loadingText="Saving..." className="flex-1 py-3 bg-emerald-500 text-black font-bold rounded-xl text-xs">
+                Save Changes
+              </ActionButton>
+              {editingEmployee.id !== adminProfile.id && (
+                <ActionButton onClick={() => handleDeleteEmployee(editingEmployee)} loadingText="Deleting..." className="px-4 py-3 bg-red-500/20 text-red-400 font-bold rounded-xl text-xs">
+                  Delete User
+                </ActionButton>
+              )}
             </div>
           </form>
         </div>
@@ -1037,19 +873,21 @@ export default function AdminControlCenter() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-xl p-4" onClick={() => setShowProvisionModal(false)}>
           <form onSubmit={handleProvisionUser} onClick={(e) => e.stopPropagation()} className="w-full max-w-lg bg-zinc-950 border border-emerald-500/40 rounded-3xl p-6 space-y-4 max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center border-b border-zinc-800 pb-3">
-              <h3 className="text-lg font-bold text-white">+ Provision New User</h3>
-              <button type="button" onClick={() => setShowProvisionModal(false)} className="px-3 py-1 bg-zinc-900 text-xs text-zinc-400 rounded-xl">✕</button>
+              <h3 className="text-lg font-bold text-white">Add User</h3>
+              <button type="button" onClick={() => setShowProvisionModal(false)} className="px-3 py-1 bg-zinc-900 text-xs text-zinc-400 rounded-xl">Close</button>
             </div>
             <select value={newRole} onChange={(e) => setNewRole(e.target.value as any)} className="w-full rounded-xl bg-black border border-zinc-800 p-3 text-xs text-emerald-400 font-bold">
-              <option value="smm">Role: SMM Handler (@smm)</option><option value="team_leader">Role: Team Leader (@tl)</option><option value="admin">Role: Admin (@admin)</option>
+              <option value="smm">SMM Handler (@smm)</option><option value="team_leader">Team Leader (@tl)</option><option value="admin">Admin (@admin)</option>
             </select>
             <input type="text" required value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Full Name" className="w-full rounded-xl bg-black border border-zinc-800 p-3 text-xs text-white" />
             <input type="text" required value={newEmail} onChange={(e) => setNewEmail(e.target.value)} placeholder="Username (e.g. name@smm or name@tl)" className="w-full rounded-xl bg-black border border-zinc-800 p-3 text-xs text-white font-mono" />
             <input type="password" required value={newPass} onChange={(e) => setNewPass(e.target.value)} placeholder="Password" className="w-full rounded-xl bg-black border border-zinc-800 p-3 text-xs text-white" />
             <FancyMultiSelect label="Platforms" options={PLATFORMS} selected={newPlatforms} onChange={setNewPlatforms} />
             <FancyMultiSelect label="Countries" options={ALL_COUNTRIES} selected={newCountries} onChange={setNewCountries} />
-            {newRole === "smm" && <FancyEntityMultiSelect label="Assign Team Leader(s)" items={teamLeaders.map((tl) => ({ id: tl.id, label: tl.full_name, sub: tl.country }))} selectedIds={newTlIds} onChange={setNewTlIds} />}
-            <button type="submit" className="w-full py-3.5 bg-emerald-500 text-black font-bold rounded-xl text-xs">Provision Account Live</button>
+            {newRole === "smm" && <FancyEntityMultiSelect label="Assign Team Leaders" items={teamLeaders.map((tl: any) => ({ id: tl.id, label: tl.full_name, sub: tl.country }))} selectedIds={newTlIds} onChange={setNewTlIds} />}
+            <ActionButton type="submit" loadingText="Creating..." className="w-full py-3.5 bg-emerald-500 text-black font-bold rounded-xl text-xs">
+              Create User
+            </ActionButton>
           </form>
         </div>
       )}
