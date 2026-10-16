@@ -2222,3 +2222,83 @@ export function ThreePaneCommandMatrix({
     </div>
   );
 }
+
+export function ThreePaneCommandMatrix({
+  teamLeaders = [],
+  smms = [],
+  assets = [],
+  metrics = [],
+  onSelectTl,
+  onSelectSmm,
+  onSelectAsset,
+  onEditAsset,
+  onToggleAssetStatus,
+  onToggleSmmLock,
+}: any) {
+  const [activeTlId, setActiveTlId] = useState<string>(teamLeaders[0]?.id || "all");
+  const [activeSmmId, setActiveSmmId] = useState<string>("all");
+
+  const paneSmms =
+    activeTlId === "all"
+      ? smms
+      : smms.filter((s: any) => s.team_leader_id === activeTlId || (s.team_leader_ids && s.team_leader_ids.includes(activeTlId)));
+
+  const paneAssets = assets.filter((a: any) => {
+    if (activeSmmId !== "all") return a.smm_id === activeSmmId;
+    if (activeTlId !== "all") return a.team_leader_id === activeTlId || paneSmms.some((s: any) => s.id === a.smm_id);
+    return true;
+  });
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 bg-zinc-950/90 border border-zinc-800 rounded-3xl p-4 shadow-2xl">
+      <div className="lg:col-span-3 border-b lg:border-b-0 lg:border-r border-zinc-800 pr-0 lg:pr-3 space-y-2 max-h-[72vh] overflow-y-auto">
+        <div className="flex justify-between items-center px-2 py-1">
+          <span className="text-[10px] uppercase font-bold text-emerald-400">Team Leaders ({teamLeaders.length})</span>
+          <button type="button" onClick={() => { setActiveTlId("all"); setActiveSmmId("all"); }} className="text-[10px] text-zinc-400 hover:text-white">All</button>
+        </div>
+        {teamLeaders.map((tl: any) => (
+          <div key={tl.id} onClick={() => { setActiveTlId(tl.id); setActiveSmmId("all"); }} className={`cursor-pointer p-3 rounded-2xl border flex justify-between items-center ${activeTlId === tl.id ? "bg-emerald-500/20 border-emerald-400 text-white" : "bg-black border-zinc-900 text-zinc-300"}`}>
+            <div className="truncate"><div className="font-bold text-xs">{tl.full_name}</div><div className="text-[10px] text-zinc-500">{tl.country}</div></div>
+            {onSelectTl && <button type="button" onClick={(e) => { e.stopPropagation(); onSelectTl(tl); }} className="px-2 py-1 rounded bg-zinc-900 text-[10px] text-emerald-300 font-bold">Details</button>}
+          </div>
+        ))}
+      </div>
+
+      <div className="lg:col-span-4 border-b lg:border-b-0 lg:border-r border-zinc-800 pr-0 lg:pr-3 space-y-2 max-h-[72vh] overflow-y-auto">
+        <div className="flex justify-between items-center px-2 py-1">
+          <span className="text-[10px] uppercase font-bold text-blue-400">SMM Handlers ({paneSmms.length})</span>
+          <button type="button" onClick={() => setActiveSmmId("all")} className="text-[10px] text-zinc-400 hover:text-white">All</button>
+        </div>
+        {paneSmms.map((smm: any) => (
+          <div key={smm.id} onClick={() => setActiveSmmId(smm.id)} className={`cursor-pointer p-3 rounded-2xl border flex justify-between items-center gap-2 ${activeSmmId === smm.id ? "bg-blue-500/20 border-blue-400 text-white" : "bg-black border-zinc-900 text-zinc-300"}`}>
+            <div className="truncate"><div className="font-bold text-xs">{smm.full_name}</div><div className="text-[10px] text-zinc-500">{smm.country}</div></div>
+            <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+              {onToggleSmmLock && <ActionButton onClick={() => onToggleSmmLock(smm)} loadingText="..." className="px-2 py-1 rounded bg-zinc-900 text-[10px] font-bold">{smm.is_locked ? "Locked" : "Open"}</ActionButton>}
+              {onSelectSmm && <button type="button" onClick={() => onSelectSmm(smm)} className="px-2 py-1 rounded bg-zinc-900 text-[10px] text-blue-300 font-bold">Details</button>}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="lg:col-span-5 space-y-2 max-h-[72vh] overflow-y-auto">
+        <div className="px-2 py-1"><span className="text-[10px] uppercase font-bold text-purple-400">Accounts ({paneAssets.length})</span></div>
+        {paneAssets.map((asset: any) => {
+          const isSusp = asset.status === "suspended";
+          const views = metrics.filter((m: any) => m.asset_id === asset.id).reduce((s: number, m: any) => s + Number(m.impressions || 0), 0);
+          return (
+            <div key={asset.id} onClick={() => onSelectAsset(asset)} className="cursor-pointer p-3.5 rounded-2xl bg-black border border-zinc-900 hover:border-purple-500/50 flex justify-between items-center gap-3">
+              <div className="truncate">
+                <div className="font-bold text-xs text-white truncate">[{asset.platform?.toUpperCase()}] {getAssetAccountName(asset)}</div>
+                <div className="text-[11px] text-zinc-500 font-mono">{asset.account_id} • {views.toLocaleString()} Views</div>
+              </div>
+              <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+                <ActionButton onClick={() => onToggleAssetStatus(asset, isSusp ? "active" : "suspended")} loadingText="..." className="px-2 py-1 rounded bg-zinc-900 text-[10px] font-bold">{isSusp ? "Suspended" : "Active"}</ActionButton>
+                <button type="button" onClick={() => onEditAsset(asset)} className="px-2.5 py-1 rounded bg-zinc-900 text-[10px] text-emerald-300 font-bold">Edit</button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
