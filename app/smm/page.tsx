@@ -1,4 +1,5 @@
 "use client";
+import { GroupedMetricsTab } from "@/components/GroupedMetricsTab";
 
 import { useState, useEffect } from "react";
 import { managerSupabase as supabase } from "@/lib/supabase";

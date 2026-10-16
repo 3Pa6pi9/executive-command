@@ -210,7 +210,7 @@ export function FancyEntityMultiSelect({
   );
 }
 
-// Blurred Pop-Up Spotlight Window for SMM Handler
+// Blurred view-Up Spotlight Window for SMM Handler
 export function SMMSpotlightModal({
   smm,
   tlName,
@@ -312,7 +312,7 @@ export function SMMSpotlightModal({
 
         <div className="space-y-3">
           <h3 className="text-xs font-bold uppercase tracking-wider text-purple-300">
-            🗂 {smm.full_name}&apos;s Social Media Assets ({smmAssets.length}) — Click any card to pop open Asset Spotlight
+            🗂 {smm.full_name}&apos;s Social Media Assets ({smmAssets.length}) — Click any card to view open Asset Spotlight
           </h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {smmAssets.map((asset) => {
@@ -376,7 +376,7 @@ export function SMMSpotlightModal({
   );
 }
 
-// Blurred Pop-Up Spotlight Window for Team Leader
+// Blurred view-Up Spotlight Window for Team Leader
 export function TeamLeaderSpotlightModal({
   tl,
   smms,
@@ -451,7 +451,7 @@ export function TeamLeaderSpotlightModal({
 
         <div className="space-y-3">
           <h3 className="text-xs font-bold uppercase tracking-wider text-blue-400">
-            👥 Click any SMM Handler below to pop open their SMM Spotlight Window
+            👥 Click any SMM Handler below to view open their SMM Spotlight Window
           </h3>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {tlSmms.map((smm) => {
@@ -1038,7 +1038,7 @@ export function ExecutiveAnalyticsGraphs({
   );
 }
 
-// Archives Component with Full Blurred Pop-Up Spotlight Modal on Click + CSV Exports
+// Archives Component with Full Blurred view-Up Spotlight Modal on Click + CSV Exports
 export function ForensicArchiveVault({
   logs,
   onRestore,
@@ -1099,7 +1099,7 @@ export function ForensicArchiveVault({
             Forensic Activity & Snapshot Ledger
           </span>
           <h2 className="text-xl sm:text-2xl font-bold text-white mt-1">
-            🗄 Archives ({filtered.length} Events — Click Any Event to Pop Out Spotlight)
+            🗄 Archives ({filtered.length} Events — Click Any Event to open Spotlight)
           </h2>
         </div>
         <button
@@ -1159,14 +1159,14 @@ export function ForensicArchiveVault({
               </div>
               <div className="flex items-center gap-3 text-xs font-mono">
                 <span className="text-zinc-400">{log.actor_name} • {log.created_at ? new Date(log.created_at).toLocaleString() : "Live"}</span>
-                <span className="text-amber-400 font-bold text-[11px]">🔍 Pop Out ↗</span>
+                <span className="text-amber-400 font-bold text-[11px]">🔍 open ↗</span>
               </div>
             </div>
           );
         })}
       </div>
 
-      {/* BLURRED POP-UP SPOTLIGHT WINDOW FOR ARCHIVE SNAPSHOT */}
+      {/* BLURRED view-UP SPOTLIGHT WINDOW FOR ARCHIVE SNAPSHOT */}
       {spotlightLog && (
         <div
           className="fixed inset-0 z-[75] flex items-center justify-center bg-black/85 backdrop-blur-2xl p-3 sm:p-6 animate-in fade-in duration-300"
@@ -1386,7 +1386,7 @@ export function useRealtimePresence(supabaseClient: any, profile: any) {
   return { onlineUsers, onlineIds };
 }
 
-// 11. Top-Bar Live "Online Now" Pill + Blurred Pop-Up Online Roster Window
+// 11. Top-Bar Live "Online Now" Pill + Blurred view-Up Online Roster Window
 export function LiveOnlineRosterPill({
   onlineUsers,
   profiles = [],
@@ -1430,7 +1430,7 @@ export function LiveOnlineRosterPill({
                   🟢 {onlineUsers.length} Personnel Online Right Now
                 </h3>
                 <p className="text-xs text-zinc-400 mt-0.5">
-                  Click any online Team Leader or SMM Handler below to pop open their Spotlight Window.
+                  Click any online Team Leader or SMM Handler below to view open their Spotlight Window.
                 </p>
               </div>
               <button

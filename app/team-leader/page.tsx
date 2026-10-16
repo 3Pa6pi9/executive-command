@@ -46,7 +46,7 @@ export default function TeamLeaderPortal() {
   const [searchQuery, setSearchQuery] = useState("");
   const [csvHorizon, setCsvHorizon] = useState<TimeHorizon>("weekly");
 
-  // Blurred Spotlight Pop-Up Windows for SMMs and Assets
+  // Blurred Spotlight view-Up Windows for SMMs and Assets
   const [spotlightSmm, setSpotlightSmm] = useState<any>(null);
   const [inspectingAsset, setInspectingAsset] = useState<any>(null);
   const [editingAsset, setEditingAsset] = useState<any>(null);
@@ -267,7 +267,7 @@ export default function TeamLeaderPortal() {
       <div className="flex min-h-screen flex-col items-center justify-center bg-black px-4 py-6 text-zinc-100 font-sans">
         <div className="w-full max-w-md">
           <div className="text-center mb-6">
-            <span className="text-[10px] uppercase tracking-widest bg-blue-500/20 text-blue-300 border border-blue-500/30 px-3 py-1 rounded-full font-bold">@tl Squad Command</span>
+            <span className="text-[10px] uppercase tracking-widest bg-blue-500/20 text-blue-300 border border-blue-500/30 px-3 py-1 rounded-full font-bold">@tl Team Management</span>
             <h1 className="text-3xl font-bold text-white mt-3">Team Leader Portal</h1>
           </div>
           <form onSubmit={handleTLLogin} className="bg-zinc-950 border border-zinc-800 rounded-3xl p-6 sm:p-8 space-y-4 shadow-2xl">
@@ -292,7 +292,7 @@ export default function TeamLeaderPortal() {
         <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center border-b border-zinc-800 pb-4 gap-3">
           <div>
             <div className="flex items-center gap-2">
-              <span className="text-[10px] uppercase tracking-widest bg-blue-500/20 text-blue-300 border border-blue-500/30 px-2.5 py-0.5 rounded-full font-bold">@tl Squad Command</span>
+              <span className="text-[10px] uppercase tracking-widest bg-blue-500/20 text-blue-300 border border-blue-500/30 px-2.5 py-0.5 rounded-full font-bold">@tl Team Management</span>
               <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full border ${liveSyncPulse ? "bg-emerald-500/30 text-emerald-300" : "bg-zinc-900 border-zinc-800 text-emerald-400"}`}>LIVE</span>
             </div>
             <h1 className="text-xl sm:text-3xl font-bold text-white mt-1.5">{tlProfile.full_name}</h1>
@@ -321,7 +321,7 @@ export default function TeamLeaderPortal() {
           <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Search SMMs or Assets..." className="rounded-xl bg-black border border-zinc-800 px-3 py-1.5 text-xs text-white outline-none" />
         </div>
 
-        {/* TAB 1: SQUAD SMM CARDS (CLICK ANY SMM CARD TO BLUR BACKGROUND & POP OUT SMM SPOTLIGHT WINDOW!) */}
+        {/* TAB 1: SQUAD SMM CARDS (CLICK ANY SMM CARD TO BLUR BACKGROUND & open SMM SPOTLIGHT WINDOW!) */}
         {activeTab === "squad" && (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
             {squadMembers
@@ -355,7 +355,7 @@ export default function TeamLeaderPortal() {
                       <div><span className="text-[9px] text-zinc-500 block">ENG</span><span className="text-purple-400 font-bold text-base">{totalEng.toLocaleString()}</span></div>
                     </div>
                     <div className="flex justify-between items-center text-xs text-zinc-400 group-hover:text-blue-300">
-                      <span>✨ Tap to Pop Out SMM Vault</span>
+                      <span>✨ Tap to open SMM Vault</span>
                       <span className="font-bold">↗</span>
                     </div>
                   </div>
@@ -382,7 +382,7 @@ export default function TeamLeaderPortal() {
                   <h3 className="text-lg font-bold text-white mt-1.5 truncate pr-20">{asset.account_id}</h3>
                   <p className="text-xs text-zinc-400">🌍 {asset.country_language} • 🗣 {asset.language || "English"} • 👤 {owner?.full_name || "Unassigned"}</p>
                   <div className="grid grid-cols-2 gap-2 pt-1" onClick={(e) => e.stopPropagation()}>
-                    <button type="button" onClick={() => setInspectingAsset(asset)} className="py-2 bg-blue-600/20 text-blue-300 font-bold rounded-xl text-xs">🔍 Pop Out Asset</button>
+                    <button type="button" onClick={() => setInspectingAsset(asset)} className="py-2 bg-blue-600/20 text-blue-300 font-bold rounded-xl text-xs">🔍 open Asset</button>
                     <button type="button" onClick={() => setEditingAsset(asset)} className="py-2 bg-zinc-900 text-emerald-400 font-bold rounded-xl text-xs">✎ Edit All 15</button>
                   </div>
                 </div>
@@ -407,7 +407,7 @@ export default function TeamLeaderPortal() {
         )}
       </div>
 
-      {/* BLURRED POP-UP SPOTLIGHT WINDOW FOR SMM HANDLER */}
+      {/* BLURRED view-UP SPOTLIGHT WINDOW FOR SMM HANDLER */}
       {activeSpotlightSmm && (
         <SMMSpotlightModal
           smm={activeSpotlightSmm}

@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { PLATFORMS, AFRICAN_COUNTRIES, EURASIA_SQUAD_COUNTRIES, normalizeAuthUsername } from "@/lib/constants";
 
-export default function SMMGatekeeper() {
+export default function SMMPortal() {
   const router = useRouter();
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
   const [isLoginMode, setIsLoginMode] = useState(true);

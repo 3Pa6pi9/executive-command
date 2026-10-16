@@ -66,7 +66,7 @@ export default function AdminControlCenter() {
   const [assetPlatformFilter, setAssetPlatformFilter] = useState<string>("all");
   const [assetCountryFilter, setAssetCountryFilter] = useState<string>("all");
 
-  // Blurred Spotlight Pop-Up Windows
+  // Blurred Spotlight view-Up Windows
   const [spotlightTl, setSpotlightTl] = useState<any>(null);
   const [spotlightSmm, setSpotlightSmm] = useState<any>(null);
   const [inspectingAsset, setInspectingAsset] = useState<any>(null);
@@ -638,7 +638,7 @@ export default function AdminControlCenter() {
                     </div>
 
                     <div className="flex justify-between items-center text-xs text-zinc-400 group-hover:text-white pt-1">
-                      <span>Tap to Pop Out Squad Window</span>
+                      <span>Tap to open Squad Window</span>
                       <span className="font-bold">↗</span>
                     </div>
                   </div>
@@ -772,7 +772,7 @@ export default function AdminControlCenter() {
 
                     <div className="flex justify-between items-center text-xs text-zinc-400 group-hover:text-blue-300 pt-1">
                       <span>SM: {(smm.platforms || ["twitter"]).join(", ").toUpperCase()}</span>
-                      <span className="font-bold">Pop Out Vault ↗</span>
+                      <span className="font-bold">open Vault ↗</span>
                     </div>
                   </div>
                 );
@@ -840,7 +840,7 @@ export default function AdminControlCenter() {
                     <p className="text-xs text-zinc-400">🌍 {asset.country_language} • 🗣 {asset.language || "English"} • 👤 {smm?.full_name || "Unassigned"}</p>
                     <div className="grid grid-cols-2 gap-2 pt-2" onClick={(e) => e.stopPropagation()}>
                       <button type="button" onClick={() => setInspectingAsset(asset)} className="py-2 bg-purple-600/20 hover:bg-purple-600 text-purple-300 hover:text-white font-bold rounded-xl text-xs">
-                        🔍 Pop Out Asset
+                        🔍 open Asset
                       </button>
                       <button type="button" onClick={() => setEditingAsset(asset)} className="py-2 bg-zinc-900 hover:bg-emerald-500 text-emerald-400 hover:text-black font-bold rounded-xl text-xs">
                         ✎ Edit All 15

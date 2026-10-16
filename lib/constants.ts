@@ -64,10 +64,10 @@ export function computeAchievements(assets: any[], metrics: any[], ..._r: any[])
   const posts = metrics.reduce((s, m) => s + Number(m.posts_published || 0), 0);
   const active = assets.filter(a => a.status === "active").length;
   return [
-    { id: "viral", title: "Viral Reach Titan", desc: "100,000+ Impressions", icon: "🚀", unlocked: impr >= 100000, progress: Math.min(100, Math.round((impr / 100000) * 100)), stat: `${impr.toLocaleString()} Impr` },
-    { id: "eng", title: "Engagement Architect", desc: "1,000+ Engagements", icon: "⚡", unlocked: eng >= 1000, progress: Math.min(100, Math.round((eng / 1000) * 100)), stat: `${eng.toLocaleString()} Eng` },
-    { id: "posts", title: "Relentless Cadence", desc: "250+ Posts Published", icon: "🔥", unlocked: posts >= 250, progress: Math.min(100, Math.round((posts / 250) * 100)), stat: `${posts.toLocaleString()} Posts` },
-    { id: "shield", title: "Invincible Uptime Shield", desc: "5+ Active Assets", icon: "🛡️", unlocked: active >= 5, progress: Math.min(100, Math.round((active / 5) * 100)), stat: `${active} Active` }
+    { id: "viral", title: "100,000 Views Milestone", desc: "100,000+ Impressions", icon: "🚀", unlocked: impr >= 100000, progress: Math.min(100, Math.round((impr / 100000) * 100)), stat: `${impr.toLocaleString()} Impr` },
+    { id: "eng", title: "1,000 Likes & Engagements", desc: "1,000+ Engagements", icon: "⚡", unlocked: eng >= 1000, progress: Math.min(100, Math.round((eng / 1000) * 100)), stat: `${eng.toLocaleString()} Eng` },
+    { id: "posts", title: "250 Published Posts", desc: "250+ Posts Published", icon: "🔥", unlocked: posts >= 250, progress: Math.min(100, Math.round((posts / 250) * 100)), stat: `${posts.toLocaleString()} Posts` },
+    { id: "shield", title: "Active Account Compliance", desc: "5+ Active Assets", icon: "🛡️", unlocked: active >= 5, progress: Math.min(100, Math.round((active / 5) * 100)), stat: `${active} Active` }
   ];
 }
 export type SheetTabOption = string;
