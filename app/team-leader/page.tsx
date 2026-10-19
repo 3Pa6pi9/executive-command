@@ -5,6 +5,7 @@ import { managerSupabase as supabase } from "@/lib/supabase";
 import Link from "next/link";
 import {
   PLATFORMS,
+  isPhoneInput,
   ALL_COUNTRIES,
   ASSET_LANGUAGES,
   TimeHorizon,
@@ -71,12 +72,17 @@ export default function TeamLeaderPortal() {
   const [editSmmNewPass, setEditSmmNewPass] = useState("");
 
   const [showGiveModal, setShowGiveModal] = useState(false);
+  const [assignMode, setAssignMode] = useState<"email_only" | "full">("email_only");
+  const [assignName, setAssignName] = useState("");
+  const [assignEmail, setAssignEmail] = useState("");
+  const [assignEmailPass, setAssignEmailPass] = useState("");
+  const [assignLink, setAssignLink] = useState("");
+  const [assignTwoFa, setAssignTwoFa] = useState("");
   const [assignSmmId, setAssignSmmId] = useState("");
   const [assignPlatform, setAssignPlatform] = useState("twitter");
   const [assignAccountId, setAssignAccountId] = useState("");
   const [assignPass, setAssignPass] = useState("");
-  const [assignLink, setAssignLink] = useState("");
-  const [assignCountry, setAssignCountry] = useState("Kenya");
+    const [assignCountry, setAssignCountry] = useState("Kenya");
   const [assignLang, setAssignLang] = useState("English");
   const [assignProject, setAssignProject] = useState("General Campaign");
 
@@ -245,6 +251,7 @@ export default function TeamLeaderPortal() {
 
   const handleGiveAsset = async (e: React.FormEvent) => {
     e.preventDefault();
+    const isSeed = assignMode === "email_only";
     await fetch("/api/crud", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -252,12 +259,28 @@ export default function TeamLeaderPortal() {
         actorId: tlProfile.id,
         entity: "asset",
         action: "create",
-        payload: { smm_id: assignSmmId, team_leader_id: tlProfile.id, platform: assignPlatform, account_id: assignAccountId, account_password: assignPass, profile_link: assignLink, country_language: assignCountry, language: assignLang, project_name: assignProject, status: "active" },
-      }),
+        payload: {
+          smm_id: assignSmmId,
+          team_leader_id: tlProfile.id,
+          platform: assignPlatform,
+          bio: isSeed ? ("Pending Setup (" + assignPlatform.toUpperCase() + ")") : (assignName || assignAccountId),
+          account_id: isSeed ? (assignEmail || "Pending Username") : assignAccountId,
+          account_password: isSeed ? "" : assignPass,
+          email: assignEmail,
+          email_password: (assignPlatform === "facebook" && isPhoneInput(assignEmail)) ? "" : assignEmailPass,
+          profile_link: isSeed ? "" : assignLink,
+          two_fa_code: isSeed ? "" : assignTwoFa,
+          country_language: assignCountry,
+          language: assignLang,
+          project_name: assignProject,
+          status: "active"
+        }
+      })
     });
-    setShowGiveModal(false); setAssignAccountId(""); setAssignPass(""); setAssignLink("");
-    setStatusMsg("✓ Asset created & handed over!");
-    await loadSquadData(tlProfile.id);
+    setShowGiveModal(false);
+    setAssignName(""); setAssignAccountId(""); setAssignPass(""); setAssignEmail(""); setAssignEmailPass(""); setAssignLink(""); setAssignTwoFa("");
+    setStatusMsg(isSeed ? "✓ Assigned starter email credentials to SMM!" : "✓ Assigned full social media account to SMM!");
+    loadSquadData(tlProfile.id);
   };
 
   if (isCheckingAuth) return <div className="flex min-h-screen items-center justify-center bg-black text-blue-400 font-mono text-sm animate-pulse">Connecting TL Stream...</div>;
@@ -302,7 +325,7 @@ export default function TeamLeaderPortal() {
             <ThemePickerDropdown themeId={themeId} onChange={changeTheme} />
             <button onClick={() => setActiveTab("campaign")} className="px-4 py-2.5 bg-gradient-to-r from-purple-600 to-blue-600 text-white font-bold rounded-xl text-xs shadow-lg">🎯 Give Campaign</button>
             <button onClick={() => setShowCreateSmmModal(true)} className="px-3.5 py-2.5 bg-blue-600 text-white font-bold rounded-xl text-xs">+ SMM</button>
-            <button onClick={() => setShowGiveModal(true)} className="px-3.5 py-2.5 bg-emerald-500 text-black font-bold rounded-xl text-xs">+ Asset</button>
+            <button onClick={() => setShowGiveModal(true)} className="px-3.5 py-2.5 bg-emerald-500 text-black font-bold rounded-xl text-xs">+ Assign Asset</button>
             <button onClick={() => setShowSettings(true)} className="px-3 py-2 bg-zinc-900 border border-zinc-800 text-zinc-300 font-bold rounded-xl text-xs">⚙ Settings</button>
             <button onClick={async () => { await supabase.auth.signOut(); setTlProfile(null); }} className="px-3 py-2 bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-red-400 rounded-xl text-xs">Sign Out</button>
           </div>

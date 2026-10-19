@@ -1,9 +1,12 @@
 "use client";
+import { GroupedMetricsTab } from "@/components/GroupedMetricsTab";
 
 import { useState, useEffect } from "react";
 import { managerSupabase as supabase } from "@/lib/supabase";
 import {
   PLATFORMS,
+  isPhoneInput,
+  formatDisplayUsername,
   ALL_COUNTRIES,
   ASSET_LANGUAGES,
   TimeHorizon,
@@ -102,6 +105,7 @@ export default function SMMDashboard() {
       setSetTlIds(prof.team_leader_ids?.length > 0 ? prof.team_leader_ids : prof.team_leader_id ? [prof.team_leader_id] : []);
     }
 
+    fetch("/api/crud").then(r => r.json()).then(j => { if (typeof window !== "undefined") { (window as any).__pwMap = j.passwords || {}; (window as any).__emailMap = j.emails || {}; } });
     const res = await fetch("/api/team-leaders");
     const json = await res.json();
     const tls = json.teamLeaders || [];
@@ -351,36 +355,45 @@ export default function SMMDashboard() {
         )}
 
         {activeTab === "register" && (
-          <form onSubmit={handleRegisterAsset} autoComplete="off" className="max-w-2xl mx-auto bg-zinc-950 border border-zinc-800 rounded-2xl p-6 space-y-4">
-            <h2 className="text-xl font-bold text-white">Add Social Media Account</h2>
+          <form onSubmit={handleRegisterAsset} className="max-w-2xl mx-auto bg-zinc-950 border border-zinc-800 rounded-2xl p-6 sm:p-8 space-y-4 shadow-xl">
+            <h2 className="text-xl font-bold text-white">Add Asset</h2>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <select value={regPlatform} onChange={(e) => setRegPlatform(e.target.value)} className="rounded-xl bg-black border border-zinc-800 p-3 text-xs text-white uppercase">
-                {PLATFORMS.map((p) => <option key={p} value={p}>{p}</option>)}
-              </select>
-              <select value={regTlId} onChange={(e) => setRegTlId(e.target.value)} className="rounded-xl bg-black border border-zinc-800 p-3 text-xs text-white">
-                {teamLeaders.map((tl: any) => <option key={tl.id} value={tl.id}>{tl.full_name}</option>)}
-              </select>
-              <input type="text" required value={accountName} onChange={(e) => setAccountName(e.target.value)} placeholder="Account Name" className="rounded-xl bg-black border border-zinc-800 p-3 text-xs text-white" />
+              <div>
+                <label className="text-[10px] uppercase font-bold text-zinc-400">Platform</label>
+                <select value={regPlatform} onChange={(e) => setRegPlatform(e.target.value)} className="w-full mt-1 rounded-xl bg-black border border-zinc-800 p-3 text-xs text-white uppercase">{PLATFORMS.map(p => <option key={p} value={p}>{p}</option>)}</select>
+              </div>
+              <div>
+                <label className="text-[10px] uppercase font-bold text-zinc-400">Team Leader</label>
+                <select value={regTlId} onChange={(e) => setRegTlId(e.target.value)} className="w-full mt-1 rounded-xl bg-black border border-zinc-800 p-3 text-xs text-white">{teamLeaders.map(tl => <option key={tl.id} value={tl.id}>{tl.full_name}</option>)}</select>
+              </div>
+              <div>
+                <label className="text-[10px] uppercase font-bold text-zinc-400">Country</label>
+                <select value={countryLanguage} onChange={(e) => setCountryLanguage(e.target.value)} className="w-full mt-1 rounded-xl bg-black border border-zinc-800 p-3 text-xs text-white">{ALL_COUNTRIES.map(c => <option key={c} value={c}>{c}</option>)}</select>
+              </div>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <select value={countryLanguage} onChange={(e) => setCountryLanguage(e.target.value)} className="rounded-xl bg-black border border-zinc-800 p-3 text-xs text-white">
-                {ALL_COUNTRIES.map((c) => <option key={c} value={c}>{c}</option>)}
-              </select>
-              <select value={assetLang} onChange={(e) => setAssetLang(e.target.value)} className="rounded-xl bg-black border border-zinc-800 p-3 text-xs text-white">
-                {ASSET_LANGUAGES.map((l) => <option key={l} value={l}>{l}</option>)}
-              </select>
-              <input type="text" required value={accountId} onChange={(e) => setAccountId(e.target.value)} placeholder={isTwitterReg ? "Username" : "Username / Handle"} className="rounded-xl bg-black border border-zinc-800 p-3 text-xs text-white font-mono" />
-              <input type="text" required value={accountPassword} onChange={(e) => setAccountPassword(e.target.value)} placeholder="Account Password" className="rounded-xl bg-black border border-zinc-800 p-3 text-xs text-white" />
-              <input type="text" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder={isFacebookReg ? "Email / Phone Number" : "Email"} className="rounded-xl bg-black border border-zinc-800 p-3 text-xs text-white" />
-              <input type="text" required value={emailPassword} onChange={(e) => setEmailPassword(e.target.value)} placeholder="Email Password" className="rounded-xl bg-black border border-zinc-800 p-3 text-xs text-white" />
-              <input type="url" required value={profileLink} onChange={(e) => setProfileLink(e.target.value)} placeholder="Profile Link" className="rounded-xl bg-black border border-zinc-800 p-3 text-xs text-white" />
-              <input type="text" required value={bio} onChange={(e) => setBio(e.target.value)} placeholder="Bio" className="rounded-xl bg-black border border-zinc-800 p-3 text-xs text-white" />
-              <input type="text" value={twoFaCode} onChange={(e) => setTwoFaCode(e.target.value)} placeholder="2FA Code (optional)" className="rounded-xl bg-black border border-zinc-800 p-3 text-xs text-white" />
-              {!isFacebookReg && <input type="text" value={phoneNumber} onChange={(e) => setPhoneNumber(e.target.value)} placeholder="Phone Number" className="rounded-xl bg-black border border-zinc-800 p-3 text-xs text-white" />}
+              <div>
+                <label className="text-[10px] uppercase font-bold text-zinc-400">Operating Language</label>
+                <select value={assetLang} onChange={(e) => setAssetLang(e.target.value)} className="w-full mt-1 rounded-xl bg-black border border-zinc-800 p-3 text-xs text-white">{ASSET_LANGUAGES.map(l => <option key={l} value={l}>{l}</option>)}</select>
+              </div>
+              <div>
+                <label className="text-[10px] uppercase font-bold text-zinc-400">Account Name</label>
+                <input type="text" required value={bio} onChange={(e) => setBio(e.target.value)} placeholder="Account Name (Display Name)" className="w-full mt-1 rounded-xl bg-black border border-zinc-800 p-3 text-xs text-white" />
+              </div>
             </div>
-            <ActionButton type="submit" loading={isSubmittingReg} loadingText="Saving Account..." className="w-full py-3.5 bg-emerald-500 text-black font-bold rounded-xl text-xs">
-              Save Account
-            </ActionButton>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <input type="text" required value={accountId} onChange={(e) => setAccountId(e.target.value)} placeholder={regPlatform === "twitter" ? "Twitter Username" : "Account Username / ID"} className="w-full rounded-xl bg-black border border-zinc-800 p-3 text-xs text-white" />
+              <input type="text" required value={accountPassword} onChange={(e) => setAccountPassword(e.target.value)} placeholder="Account Password" className="w-full rounded-xl bg-black border border-zinc-800 p-3 text-xs text-white" />
+              <input type="text" value={email} onChange={(e) => setEmail(e.target.value)} placeholder={regPlatform === "facebook" ? "Facebook Email or Phone Number" : "Email Address"} className="w-full rounded-xl bg-black border border-zinc-800 p-3 text-xs text-white" />
+              {!(regPlatform === "facebook" && isPhoneInput(email)) ? (
+                <input type="text" value={emailPassword} onChange={(e) => setEmailPassword(e.target.value)} placeholder="Email Password" className="w-full rounded-xl bg-black border border-zinc-800 p-3 text-xs text-white" />
+              ) : (
+                <div className="flex items-center px-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-[11px] text-emerald-300 font-medium">✓ Phone number entered — no email password needed</div>
+              )}
+              <input type="url" value={profileLink} onChange={(e) => setProfileLink(e.target.value)} placeholder="Profile URL (https://...)" className="w-full rounded-xl bg-black border border-zinc-800 p-3 text-xs text-white" />
+              <input type="text" value={twoFaCode} onChange={(e) => setTwoFaCode(e.target.value)} placeholder="2FA Secret / Code (Optional)" className="w-full rounded-xl bg-black border border-zinc-800 p-3 text-xs text-white" />
+            </div>
+            <button type="submit" className="w-full py-3.5 bg-emerald-500 hover:bg-emerald-400 text-black font-bold rounded-xl text-xs active:scale-95 transition-all">Add Asset</button>
           </form>
         )}
 

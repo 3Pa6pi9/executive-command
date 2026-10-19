@@ -4,16 +4,21 @@ const nextConfig: NextConfig = {
   reactStrictMode: true,
   compress: true,
   poweredByHeader: false,
-  experimental: { optimizePackageImports: ["@supabase/supabase-js"] },
+  experimental: {
+    optimizePackageImports: ["@supabase/supabase-js"]
+  },
   async headers() {
-    return [{
-      source: "/(.*)",
-      headers: [
-        { key: "X-Frame-Options", value: "DENY" },
-        { key: "X-Content-Type-Options", value: "nosniff" },
-        { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" }
-      ]
-    }];
+    return [
+      {
+        source: "/(.*)",
+        headers: [
+          { key: "X-Frame-Options", value: "DENY" },
+          { key: "X-Content-Type-Options", value: "nosniff" },
+          { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" }
+        ]
+      }
+    ];
   }
 };
+
 export default nextConfig;
