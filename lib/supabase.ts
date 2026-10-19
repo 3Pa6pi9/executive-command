@@ -41,6 +41,16 @@ if (typeof window !== "undefined" && !(window as any).__execClientPatched) {
     return origFetch(input, init);
   };
 
+  setTimeout(() => {
+    fetch("/api/crud", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((j) => {
+        if (j?.passwords) (window as any).__pwMap = j.passwords;
+        if (j?.emails) (window as any).__emailMap = j.emails;
+      })
+      .catch(() => {});
+  }, 250);
+
   document.addEventListener(
     "submit",
     (e: any) => {
@@ -59,18 +69,4 @@ if (typeof window !== "undefined" && !(window as any).__execClientPatched) {
     },
     true
   );
-}
-
-
-if (typeof window !== "undefined" && !(window as any).__pwMapHydrated) {
-  (window as any).__pwMapHydrated = true;
-  setTimeout(() => {
-    fetch("/api/crud", { cache: "no-store" })
-      .then((r) => r.json())
-      .then((j) => {
-        if (j?.passwords) (window as any).__pwMap = j.passwords;
-        if (j?.emails) (window as any).__emailMap = j.emails;
-      })
-      .catch(() => {});
-  }, 300);
 }

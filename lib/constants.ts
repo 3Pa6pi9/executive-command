@@ -221,8 +221,8 @@ export function computeAchievements(assets: any[], metrics: any[], ..._r: any[])
   );
   return [
     { id: "acc", title: "Total Accounts", desc: "Active social media accounts in scope", icon: "🗂", unlocked: assets.length > 0, progress: 100, stat: `${assets.length.toLocaleString()} Accounts` },
-    { id: "posts", title: "Total Posts", desc: "Cumulative published posts across accounts", icon: "📝", unlocked: posts > 0, progress: Math.min(100, Math.round((posts / 250) * 100)), stat: `${posts.toLocaleString()} Posts` },
-    { id: "views", title: "Total Views", desc: "Cumulative content views across all platforms", icon: "👁", unlocked: views > 0, progress: Math.min(100, Math.round((views / 100000) * 100)), stat: `${views.toLocaleString()} Views` },
+    { id: "posts", title: "Post Rate & Volume", desc: "Cumulative published posts across accounts", icon: "📝", unlocked: posts > 0, progress: Math.min(100, Math.round((posts / 250) * 100)), stat: `${posts.toLocaleString()} Posts` },
+    { id: "views", title: "Total Performance Views", desc: "Cumulative content views across all platforms", icon: "👁", unlocked: views > 0, progress: Math.min(100, Math.round((views / 100000) * 100)), stat: `${views.toLocaleString()} Views` },
     { id: "likes", title: "Total Likes", desc: "Cumulative audience likes and interactions", icon: "❤️", unlocked: likes > 0, progress: Math.min(100, Math.round((likes / 5000) * 100)), stat: `${likes.toLocaleString()} Likes` },
     { id: "fols", title: "Total Followers", desc: "Combined current follower count across accounts", icon: "👥", unlocked: fols > 0, progress: Math.min(100, Math.round((fols / 25000) * 100)), stat: `${fols.toLocaleString()} Followers` },
     { id: "net", title: "Followers Gained / Lost", desc: `+${gained.toLocaleString()} gained / -${lost.toLocaleString()} lost`, icon: "📈", unlocked: net >= 0, progress: 100, stat: `${net >= 0 ? "+" : ""}${net.toLocaleString()} Net` }

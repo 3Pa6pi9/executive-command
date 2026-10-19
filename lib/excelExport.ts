@@ -7,7 +7,7 @@ const HEADERS = [
   "Total Views", "Engagements", "Engagement Rate %", "Total Likes",
   "Shares / Reposts", "Comments", "Followers Gained", "Followers Lost",
   "Net Followers", "Total Followers", "Follower Growth %", "Total Posts",
-  "Posts / Day", "Top Post Views", "Profile Link"
+  "Post Rate (Posts/Day)", "Top Post Views", "Profile Link"
 ];
 
 function toRow(r: any, h: string, assets: any[], profiles: any[]) {
@@ -41,7 +41,7 @@ function toRow(r: any, h: string, assets: any[], profiles: any[]) {
     "Total Followers": r.total_followers,
     "Follower Growth %": `${grw}%`,
     "Total Posts": r.posts_published,
-    "Posts / Day": Number((r.posts_published / days).toFixed(2)),
+    "Post Rate (Posts/Day)": Number((r.posts_published / days).toFixed(2)),
     "Top Post Views": r.top_post_impressions,
     "Profile Link": a.profile_link || ""
   };

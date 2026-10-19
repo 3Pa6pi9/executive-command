@@ -113,11 +113,11 @@ export async function POST(req: Request) {
     };
 
     if (entity === "metric" && action === "bulk_upsert") {
-      if (actor.role === "smm" && actor.is_locked) return NextResponse.json({ error: "Metric entry is locked." }, { status: 403 });
+      if (actor.role === "smm" && actor.is_locked) return NextResponse.json({ error: "Performance entry is locked." }, { status: 403 });
       const rows = (payload.rows || []).filter((r: any) => r.asset_id && r.week_of);
       const { data, error } = await db.from("weekly_metrics").upsert(rows, { onConflict: "asset_id,week_of" }).select();
       if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-      await log("UPSERT", "METRIC", "BATCH", `Submitted weekly metrics for ${rows.length} accounts (${rows[0]?.week_of || ""})`, { count: rows.length });
+      await log("UPSERT", "METRIC", "BATCH", `Submitted weekly performance for ${rows.length} accounts (${rows[0]?.week_of || ""})`, { count: rows.length });
       return NextResponse.json({ success: true, count: data?.length || rows.length });
     }
 
@@ -234,7 +234,7 @@ export async function POST(req: Request) {
       if (action === "upsert") {
         const { data: s, error } = await db.from("weekly_metrics").upsert([payload], { onConflict: "asset_id,week_of" }).select().single();
         if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-        await log("UPSERT", "METRIC", s.id, `Logged metrics (${payload.week_of})`, s);
+        await log("UPSERT", "METRIC", s.id, `Logged performance (${payload.week_of})`, s);
         return NextResponse.json({ success: true });
       }
       if (action === "delete") {
