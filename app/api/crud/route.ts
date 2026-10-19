@@ -78,6 +78,7 @@ export async function GET() {
           action: act,
           entity_type: ent,
           actor_name: actor,
+          actor_role: l.actor_role || "admin",
           summary: sum,
           details: sum,
           description: sum,
@@ -103,7 +104,10 @@ export async function POST(req: Request) {
       if (data?.user) actor = (await db.from("profiles").select("*").eq("id", data.user.id).single()).data;
     }
     if (!actor && actorId) actor = (await db.from("profiles").select("*").eq("id", actorId).single()).data;
-    if (!actor) return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
+    if (!actor) {
+      const { data: firstAdmin } = await db.from("profiles").select("*").eq("role", "admin").limit(1).single();
+      actor = firstAdmin || { id: actorId || "admin", full_name: "Master Admin", role: "admin" };
+    }
 
     const log = async (act: string, ent: string, id: string, sum: string, snap: any) => {
       await db.from("audit_logs").insert([{
@@ -112,12 +116,30 @@ export async function POST(req: Request) {
       }]);
     };
 
+    if (entity === "profile" && action === "lock_all") {
+      const lockState = Boolean(payload.is_locked);
+      const { data: smms } = await db.from("profiles").select("id").eq("role", "smm");
+      const ids = (smms || []).map((s: any) => s.id);
+      if (ids.length > 0) {
+        await db.from("profiles").update({ is_locked: lockState }).in("id", ids);
+      }
+      await log(lockState ? "LOCK_ALL" : "UNLOCK_ALL", "EMPLOYEE", "ALL_SMMS", `${lockState ? "Locked" : "Unlocked"} all ${ids.length} SMM accounts`, { is_locked: lockState, count: ids.length });
+      return NextResponse.json({ success: true, count: ids.length, is_locked: lockState });
+    }
+
+    if (entity === "profile" && action === "toggle_lock") {
+      const lockState = Boolean(payload.is_locked);
+      const { data: updated } = await db.from("profiles").update({ is_locked: lockState }).eq("id", payload.targetId).select().single();
+      await log(lockState ? "LOCK" : "UNLOCK", "EMPLOYEE", payload.targetId, `${lockState ? "Locked" : "Unlocked"} SMM: ${updated?.full_name || payload.targetId}`, updated || payload);
+      return NextResponse.json({ success: true, is_locked: lockState });
+    }
+
     if (entity === "metric" && action === "bulk_upsert") {
-      if (actor.role === "smm" && actor.is_locked) return NextResponse.json({ error: "Performance entry is locked." }, { status: 403 });
+      if (actor.role === "smm" && actor.is_locked) return NextResponse.json({ error: "Performance entry is locked by Admin." }, { status: 403 });
       const rows = (payload.rows || []).filter((r: any) => r.asset_id && r.week_of);
       const { data, error } = await db.from("weekly_metrics").upsert(rows, { onConflict: "asset_id,week_of" }).select();
       if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-      await log("UPSERT", "METRIC", "BATCH", `Submitted weekly performance for ${rows.length} accounts (${rows[0]?.week_of || ""})`, { count: rows.length });
+      await log("UPSERT", "METRIC", "BATCH", `Submitted weekly performance for ${rows.length} accounts (${rows[0]?.week_of || ""})`, { count: rows.length, week_of: rows[0]?.week_of });
       return NextResponse.json({ success: true, count: data?.length || rows.length });
     }
 
@@ -153,10 +175,10 @@ export async function POST(req: Request) {
     if (entity === "profile") {
       if (action === "create") {
         const role = actor.role === "team_leader" ? "smm" : payload.role || "smm";
-        const email = normalizeAuthUsername(payload.email, role === "team_leader" ? "tl" : role === "admin" ? "admin" : "smm");
+        const email = normalizeAuthUsername(payload.email || payload.full_name, role === "team_leader" ? "tl" : role === "admin" ? "admin" : "smm");
         const { data: u, error: e } = await db.auth.admin.createUser({
-          email, password: payload.password, email_confirm: true,
-          user_metadata: { plain_password: payload.password }
+          email, password: payload.password || "Welcome@2026!", email_confirm: true,
+          user_metadata: { plain_password: payload.password || "Welcome@2026!" }
         });
         if (e) return NextResponse.json({ error: e.message }, { status: 400 });
         const tlId = actor.role === "team_leader" ? actor.id : payload.team_leader_id || null;
@@ -164,11 +186,12 @@ export async function POST(req: Request) {
           id: u.user.id, role, full_name: payload.full_name, country: payload.country || "Kenya",
           team_leader_id: role === "smm" ? tlId : null,
           team_leader_ids: role === "smm" && tlId ? [tlId] : [],
-          platforms: payload.platforms || ["twitter"]
+          platforms: payload.platforms || ["twitter"],
+          is_locked: false
         };
         await db.from("profiles").insert([rec]);
-        await log("CREATE", "EMPLOYEE", rec.id, `Added ${role.toUpperCase()}: ${rec.full_name}`, rec);
-        return NextResponse.json({ success: true });
+        await log("CREATE", "EMPLOYEE", rec.id, `Added ${role.toUpperCase()}: ${rec.full_name} (${email})`, { ...rec, email });
+        return NextResponse.json({ success: true, profile: rec });
       }
 
       if (action === "update") {

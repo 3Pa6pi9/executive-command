@@ -54,7 +54,7 @@ export const APP_THEMES: any[] = [
     name: "Spatial Frosted HUD",
     label: "Spatial HUD",
     icon: "💎",
-    shellBg: "bg-gradient-to-br from-indigo-950/70 via-slate-950 to-black text-slate-100",
+    shellBg: "bg-gradient-to-br from-indigo-950/80 via-slate-950 to-black text-slate-100",
     cardBg: "bg-white/[0.04] backdrop-blur-xl border-white/15 shadow-2xl",
     accent: "indigo"
   },
@@ -142,7 +142,7 @@ export async function fetchAllRows(sb: any, tbl: string, ord = "created_at", fCo
 
   const key = `${tbl}_${ord}_${fCol}_${JSON.stringify(fVal || "")}`;
   const now = Date.now(), hit = _cache.get(key);
-  if (hit && now - hit.ts < 400) return hit.data;
+  if (hit && now - hit.ts < 250) return hit.data;
   if (_inflight.has(key)) return _inflight.get(key)!;
   const p = (async () => {
     let q = sb.from(tbl).select("*").order(ord, { ascending: false }).limit(5000);
@@ -175,7 +175,7 @@ export function getPeriodBucket(dt: string, h: TimeHorizon, ..._r: any[]): strin
 
 export function aggregateMetricsByHorizon(metrics: any[], horizon: TimeHorizon, ..._r: any[]) {
   const map = new Map<string, any>();
-  for (const m of metrics) {
+  for (const m of metrics || []) {
     const period = getPeriodBucket(m.week_of, horizon);
     const key = `${m.asset_id}__${period}`;
     if (!map.has(key)) {
@@ -206,21 +206,23 @@ export function exportHorizonCSV(args: any) {
   return downloadMultiTabWorkbook(args);
 }
 
-export function computeAchievements(assets: any[], metrics: any[], ..._r: any[]) {
-  const validIds = new Set(assets.map(a => a.id));
-  const mList = metrics.filter(m => !validIds.size || validIds.has(m.asset_id));
+export function computeAchievements(assets: any[] = [], metrics: any[] = [], ..._r: any[]) {
+  const safeAssets = Array.isArray(assets) ? assets : [];
+  const safeMetrics = Array.isArray(metrics) ? metrics : [];
+  const validIds = new Set(safeAssets.map(a => a.id));
+  const mList = safeMetrics.filter(m => !validIds.size || validIds.has(m.asset_id));
   const views = mList.reduce((s, m) => s + Number(m.impressions || 0), 0);
   const likes = mList.reduce((s, m) => s + Number(m.likes || m.engagements || 0), 0);
   const posts = mList.reduce((s, m) => s + Number(m.posts_published || 0), 0);
   const gained = mList.reduce((s, m) => s + Number(m.followers_gained || 0), 0);
   const lost = mList.reduce((s, m) => s + Number(m.followers_lost || 0), 0);
   const net = gained - lost;
-  const fols = assets.reduce(
+  const fols = safeAssets.reduce(
     (s, a) => s + mList.filter(m => m.asset_id === a.id).reduce((mx, x) => Math.max(mx, Number(x.total_followers || 0)), 0),
     0
   );
   return [
-    { id: "acc", title: "Total Accounts", desc: "Active social media accounts in scope", icon: "🗂", unlocked: assets.length > 0, progress: 100, stat: `${assets.length.toLocaleString()} Accounts` },
+    { id: "acc", title: "Total Accounts", desc: "Active social media accounts in scope", icon: "🗂", unlocked: safeAssets.length > 0, progress: 100, stat: `${safeAssets.length.toLocaleString()} Accounts` },
     { id: "posts", title: "Post Rate & Volume", desc: "Cumulative published posts across accounts", icon: "📝", unlocked: posts > 0, progress: Math.min(100, Math.round((posts / 250) * 100)), stat: `${posts.toLocaleString()} Posts` },
     { id: "views", title: "Total Performance Views", desc: "Cumulative content views across all platforms", icon: "👁", unlocked: views > 0, progress: Math.min(100, Math.round((views / 100000) * 100)), stat: `${views.toLocaleString()} Views` },
     { id: "likes", title: "Total Likes", desc: "Cumulative audience likes and interactions", icon: "❤️", unlocked: likes > 0, progress: Math.min(100, Math.round((likes / 5000) * 100)), stat: `${likes.toLocaleString()} Likes` },
