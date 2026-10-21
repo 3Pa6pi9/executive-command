@@ -14,7 +14,6 @@ export function GroupedMetricsTab({ assets = [], metrics = [], weekOf, setWeekOf
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState("");
 
-  // Update default period format when SMM switches between Weekly, Monthly, Quarterly, and Yearly
   const handleSwitchHorizon = (h: TimeHorizon) => {
     setHorizon(h);
     const now = new Date();
@@ -33,7 +32,7 @@ export function GroupedMetricsTab({ assets = [], metrics = [], weekOf, setWeekOf
       const j = await r.json();
       if (Array.isArray(j?.metrics)) setLiveMetrics(j.metrics);
       if (Array.isArray(j?.reportRecords)) {
-        const mine = actorId ? j.reportRecords.filter((x: any) => x.smm_id === actorId) : j.reportRecords;
+        const mine = actorId ? j.reportRecords.filter((x: any) => x.smm_id === actorId || x.actor_id === actorId) : j.reportRecords;
         setMyReports(mine);
       }
     } catch {}
@@ -41,11 +40,12 @@ export function GroupedMetricsTab({ assets = [], metrics = [], weekOf, setWeekOf
 
   useEffect(() => {
     fetchVaultReports();
+    const iv = setInterval(fetchVaultReports, 3000); // Poll every 3s for instant cross-dashboard sync
+    return () => clearInterval(iv);
   }, [actorId, horizon, period]);
 
   const assetSig = safeAssets.map((a: any) => a?.id || "").join(",");
   useEffect(() => {
-    // Check if we already have a saved report for this (horizon + period)
     const existingReport = myReports.find((r: any) => r.horizon === horizon && r.period === period);
     const next: Record<string, any> = {};
     for (const a of safeAssets) {
@@ -85,7 +85,6 @@ export function GroupedMetricsTab({ assets = [], metrics = [], weekOf, setWeekOf
           account_handle: a.account_id,
           platform: a.platform,
           country: a.country_language || "Kenya",
-          week_of: period,
           posts_published: Math.max(0, Number(d.posts_published || 0) || 0),
           impressions: Math.max(0, Number(d.impressions || 0) || 0),
           likes: l,
@@ -112,7 +111,7 @@ export function GroupedMetricsTab({ assets = [], metrics = [], weekOf, setWeekOf
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || "Failed to submit report");
       await fetchVaultReports();
-      setMsg(`✓ Submitted ${horizon.toUpperCase()} Report (${period}) to your Team Leader!`);
+      setMsg(`✓ Submitted ${horizon.toUpperCase()} Report (${period})!`);
       if (onSaved) onSaved();
     } catch (e: any) {
       setMsg(`⚠️ ${e.message}`);
@@ -138,14 +137,13 @@ export function GroupedMetricsTab({ assets = [], metrics = [], weekOf, setWeekOf
       )}
 
       {/* TOP BAR: TOGGLE WEEKLY / MONTHLY / QUARTERLY / YEARLY + PERIOD + SUBMIT */}
-      <div className="bg-zinc-950 border border-zinc-800 p-4 rounded-2xl space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="bg-zinc-950 border border-zinc-800 p-4 rounded-2xl space-y-4 shadow-xl">
+        <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <span className="text-[10px] uppercase font-extrabold text-emerald-400">SMM Metric Report Builder</span>
             <h3 className="text-base font-black text-white">Submit {horizon.toUpperCase()} Metric Report to Team Leader</h3>
           </div>
 
-          {/* 4-HORIZON TOGGLE PILLS */}
           <div className="flex items-center gap-1 bg-black p-1.5 rounded-2xl border border-zinc-800">
             {(["weekly", "monthly", "quarterly", "yearly"] as TimeHorizon[]).map((h) => (
               <button
@@ -165,7 +163,7 @@ export function GroupedMetricsTab({ assets = [], metrics = [], weekOf, setWeekOf
         <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-zinc-900">
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-xs font-bold uppercase text-zinc-400">
-              {horizon === "weekly" ? "Week Of:" : horizon === "monthly" ? "Month (YYYY-MM):" : horizon === "quarterly" ? "Quarter (YYYY-Q#):" : "Year (YYYY):"}
+              {horizon === "weekly" ? "Week Of:" : horizon === "monthly" ? "Month:" : horizon === "quarterly" ? "Quarter:" : "Year:"}
             </span>
             {horizon === "weekly" ? (
               <input
@@ -226,7 +224,7 @@ export function GroupedMetricsTab({ assets = [], metrics = [], weekOf, setWeekOf
               onClick={handleSubmitReport}
               className="px-5 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 disabled:opacity-40 text-black font-extrabold text-xs shadow-lg transition-all"
             >
-              {saving ? "⏳ Submitting..." : isLocked ? "🔒 Submissions Locked" : `📤 Submit ${horizon.toUpperCase()} Report (${period})`}
+              {saving ? "⏳ Submitting..." : isLocked ? "🔒 Locked" : `📤 Submit ${horizon.toUpperCase()} Report (${period})`}
             </button>
           </div>
         </div>
@@ -296,7 +294,7 @@ export function GroupedMetricsTab({ assets = [], metrics = [], weekOf, setWeekOf
       })}
 
       {/* SMM SUBMITTED REPORTS HISTORY */}
-      <div className="bg-zinc-950 border border-zinc-800 rounded-2xl p-5 space-y-4">
+      <div className="bg-zinc-950 border border-zinc-800 rounded-2xl p-5 space-y-4 shadow-xl">
         <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
           <div>
             <span className="text-[10px] uppercase font-extrabold text-purple-400">SMM Report Archive</span>
@@ -335,7 +333,7 @@ export function GroupedMetricsTab({ assets = [], metrics = [], weekOf, setWeekOf
                       setPeriod(rep.period || "");
                     }}
                     className="hover:bg-zinc-900/40 cursor-pointer"
-                    title="Click to load this report period into the editor above"
+                    title="Click to load this report into editor"
                   >
                     <td className="p-3 uppercase font-extrabold text-purple-300">{rep.horizon}</td>
                     <td className="p-3 font-mono font-bold text-white">{rep.period}</td>
