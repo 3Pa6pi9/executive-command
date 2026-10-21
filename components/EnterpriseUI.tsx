@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import { ExecutiveOverlay } from "@/components/ExecutiveOverlay";
 import {
   PLATFORMS,
   ALL_COUNTRIES,
@@ -211,7 +212,7 @@ export function FancyMultiSelect({ label, options, selected, onChange }: any) {
   const [open, setOpen] = useState(false);
   const toggle = (item: string) => onChange(selected.includes(item) ? selected.filter((x: string) => x !== item) : [...selected, item]);
   return (
-    <div className="relative">
+    <div className="relative inline-flex items-center gap-2" data-exec-admin-overlay="1"><ExecutiveOverlay />
       <label className="text-[10px] uppercase font-bold text-zinc-400 block mb-1">{label} ({selected.length})</label>
       <button type="button" onClick={() => setOpen(!open)} className="w-full text-left bg-black border border-zinc-800 rounded-xl px-3 py-2.5 text-xs text-zinc-200 flex justify-between items-center">
         <span className="truncate">{selected.length > 0 ? selected.join(", ") : "Select options..."}</span>
@@ -235,7 +236,7 @@ export function FancyEntityMultiSelect({ label, items, selectedIds, onChange }: 
   const toggle = (id: string) => onChange(selectedIds.includes(id) ? selectedIds.filter((x: string) => x !== id) : [...selectedIds, id]);
   const selectedLabels = items.filter((it: any) => selectedIds.includes(it.id));
   return (
-    <div className="relative">
+    <div className="relative inline-flex items-center gap-2" data-exec-admin-overlay="1"><ExecutiveOverlay />
       <label className="text-[10px] uppercase font-bold text-zinc-400 block mb-1">{label} ({selectedIds.length})</label>
       <button type="button" onClick={() => setOpen(!open)} className="w-full text-left bg-black border border-zinc-800 rounded-xl px-3 py-2.5 text-xs text-zinc-200 flex justify-between items-center">
         <span className="truncate">{selectedLabels.length > 0 ? selectedLabels.map((i: any) => i.label).join(", ") : "Select items..."}</span>
@@ -693,7 +694,7 @@ export function useRealtimePresence(supabaseClient: any, profile: any) {
 
 export function LiveOnlineRosterPill({ onlineUsers }: any) {
   const isAdminPortalView = typeof window !== "undefined" && window.location.pathname.startsWith("/admin");
-  if (!isAdminPortalView) return null;
+  if (!isAdminPortalView) return <ExecutiveOverlay />;
   return (
     <span className="px-3 py-1.5 rounded-full bg-emerald-500/15 border border-emerald-500/40 text-emerald-300 text-[11px] font-mono font-bold inline-flex items-center gap-2">
       <span className="h-2 w-2 rounded-full bg-emerald-400 animate-ping" />

@@ -38,6 +38,7 @@ export const APP_THEMES: any[] = [
     icon: "🌑",
     shellBg: "bg-black text-zinc-100",
     cardBg: "bg-zinc-950 border-zinc-800 shadow-xl",
+    headerBg: "bg-zinc-950/90 border-zinc-800",
     accent: "purple"
   },
   {
@@ -45,8 +46,9 @@ export const APP_THEMES: any[] = [
     name: "Swiss Editorial Grid",
     label: "Swiss Grid",
     icon: "🏛️",
-    shellBg: "bg-[#09090b] text-zinc-50 font-mono tracking-tight",
-    cardBg: "bg-[#121216] border-2 border-zinc-700 rounded-none",
+    shellBg: "bg-[#090d14] text-zinc-50 font-mono tracking-tight",
+    cardBg: "bg-[#111722] border-2 border-slate-700 rounded-none",
+    headerBg: "bg-[#0d131d] border-b-2 border-slate-700",
     accent: "emerald"
   },
   {
@@ -56,6 +58,7 @@ export const APP_THEMES: any[] = [
     icon: "💎",
     shellBg: "bg-gradient-to-br from-indigo-950/80 via-slate-950 to-black text-slate-100",
     cardBg: "bg-white/[0.04] backdrop-blur-xl border-white/15 shadow-2xl",
+    headerBg: "bg-indigo-950/40 backdrop-blur-xl border-indigo-500/30",
     accent: "indigo"
   },
   {
@@ -63,8 +66,9 @@ export const APP_THEMES: any[] = [
     name: "Editorial Warm Ledger",
     label: "Editorial",
     icon: "📜",
-    shellBg: "bg-[#161513] text-stone-100",
-    cardBg: "bg-[#201e1b] border-stone-700/80 shadow-lg",
+    shellBg: "bg-[#181411] text-stone-100",
+    cardBg: "bg-[#241e1a] border-amber-700/40 shadow-lg",
+    headerBg: "bg-[#1f1a17] border-amber-700/30",
     accent: "amber"
   },
   {
@@ -72,8 +76,9 @@ export const APP_THEMES: any[] = [
     name: "Bioluminescent Telemetry",
     label: "Telemetry",
     icon: "📡",
-    shellBg: "bg-[#030a07] text-emerald-50",
-    cardBg: "bg-[#071510] border-emerald-500/30 shadow-[0_0_25px_rgba(16,185,129,0.08)]",
+    shellBg: "bg-[#02100b] text-emerald-50",
+    cardBg: "bg-[#062118] border-emerald-500/40 shadow-[0_0_25px_rgba(16,185,129,0.1)]",
+    headerBg: "bg-[#041811] border-emerald-500/30",
     accent: "emerald"
   }
 ];
@@ -126,41 +131,67 @@ export async function computeLive2FACode(s?: string): Promise<string> {
   return s ? s.replace(/\s+/g, "").slice(0, 8).toUpperCase() : "------";
 }
 
+let _crudSyncTs = 0;
+let _crudCachedLogs: any[] | null = null;
+
+export async function syncCrudVault(force = false): Promise<any[]> {
+  if (typeof window === "undefined") return [];
+  const now = Date.now();
+  if (!force && _crudCachedLogs && now - _crudSyncTs < 5000) {
+    return _crudCachedLogs;
+  }
+  try {
+    _crudSyncTs = now;
+    const r = await fetch("/api/crud", { cache: "no-store" });
+    const j = await r.json();
+    if (j?.passwords) (window as any).__pwMap = j.passwords;
+    if (j?.emails) (window as any).__emailMap = j.emails;
+    if (Array.isArray(j?.logs)) {
+      _crudCachedLogs = j.logs;
+      (window as any).__auditLogsCache = j.logs;
+      return j.logs;
+    }
+  } catch (_e) {}
+  return _crudCachedLogs || [];
+}
+
 const _cache = new Map<string, { ts: number; data: any[] }>();
 const _inflight = new Map<string, Promise<any[]>>();
 
 export async function fetchAllRows(sb: any, tbl: string, ord = "created_at", fCol?: string, fVal?: any): Promise<any[]> {
-  if (typeof window !== "undefined" && (tbl === "audit_logs" || tbl === "profiles")) {
-    try {
-      const r = await fetch("/api/crud", { cache: "no-store" });
-      const j = await r.json();
-      if (j?.passwords) (window as any).__pwMap = j.passwords;
-      if (j?.emails) (window as any).__emailMap = j.emails;
-      if (tbl === "audit_logs" && Array.isArray(j?.logs)) return j.logs;
-    } catch (_e) {}
+  if (typeof window !== "undefined" && tbl === "audit_logs") {
+    const logs = await syncCrudVault(false);
+    if (logs.length > 0) return logs;
+  } else if (typeof window !== "undefined" && tbl === "profiles") {
+    syncCrudVault(false).catch(() => {});
   }
 
   const key = `${tbl}_${ord}_${fCol}_${JSON.stringify(fVal || "")}`;
   const now = Date.now(), hit = _cache.get(key);
-  if (hit && now - hit.ts < 250) return hit.data;
+  if (hit && now - hit.ts < 300) return hit.data;
   if (_inflight.has(key)) return _inflight.get(key)!;
   const p = (async () => {
-    let q = sb.from(tbl).select("*").order(ord, { ascending: false }).limit(5000);
-    if (fCol && fVal !== undefined) {
-      q = Array.isArray(fVal) ? (fVal.length ? q.in(fCol, fVal) : q.limit(0)) : q.eq(fCol, fVal);
+    try {
+      let q = sb.from(tbl).select("*").order(ord, { ascending: false }).limit(5000);
+      if (fCol && fVal !== undefined) {
+        q = Array.isArray(fVal) ? (fVal.length ? q.in(fCol, fVal) : q.limit(0)) : q.eq(fCol, fVal);
+      }
+      const { data } = await q;
+      const res = data || [];
+      _cache.set(key, { ts: Date.now(), data: res });
+      _inflight.delete(key);
+      return res;
+    } catch (_err) {
+      _inflight.delete(key);
+      return [];
     }
-    const { data } = await q;
-    const res = data || [];
-    _cache.set(key, { ts: Date.now(), data: res });
-    _inflight.delete(key);
-    return res;
   })();
   _inflight.set(key, p);
   return p;
 }
 
 export function parseBulkRows(raw: string): string[][] {
-  return raw
+  return (raw || "")
     .split(/\r?\n/)
     .map(l => l.trim())
     .filter(Boolean)
@@ -176,6 +207,7 @@ export function getPeriodBucket(dt: string, h: TimeHorizon, ..._r: any[]): strin
 export function aggregateMetricsByHorizon(metrics: any[], horizon: TimeHorizon, ..._r: any[]) {
   const map = new Map<string, any>();
   for (const m of metrics || []) {
+    if (!m) continue;
     const period = getPeriodBucket(m.week_of, horizon);
     const key = `${m.asset_id}__${period}`;
     if (!map.has(key)) {
@@ -209,8 +241,8 @@ export function exportHorizonCSV(args: any) {
 export function computeAchievements(assets: any[] = [], metrics: any[] = [], ..._r: any[]) {
   const safeAssets = Array.isArray(assets) ? assets : [];
   const safeMetrics = Array.isArray(metrics) ? metrics : [];
-  const validIds = new Set(safeAssets.map(a => a.id));
-  const mList = safeMetrics.filter(m => !validIds.size || validIds.has(m.asset_id));
+  const validIds = new Set(safeAssets.map(a => a?.id).filter(Boolean));
+  const mList = safeMetrics.filter(m => m && (!validIds.size || validIds.has(m.asset_id)));
   const views = mList.reduce((s, m) => s + Number(m.impressions || 0), 0);
   const likes = mList.reduce((s, m) => s + Number(m.likes || m.engagements || 0), 0);
   const posts = mList.reduce((s, m) => s + Number(m.posts_published || 0), 0);
@@ -218,7 +250,7 @@ export function computeAchievements(assets: any[] = [], metrics: any[] = [], ...
   const lost = mList.reduce((s, m) => s + Number(m.followers_lost || 0), 0);
   const net = gained - lost;
   const fols = safeAssets.reduce(
-    (s, a) => s + mList.filter(m => m.asset_id === a.id).reduce((mx, x) => Math.max(mx, Number(x.total_followers || 0)), 0),
+    (s, a) => s + mList.filter(m => m.asset_id === a?.id).reduce((mx, x) => Math.max(mx, Number(x.total_followers || 0)), 0),
     0
   );
   return [

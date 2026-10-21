@@ -211,7 +211,7 @@ export default function AdminControlCenter() {
       summary: `${!smm.is_locked ? "Locked" : "Unlocked"} SMM Handler: ${smm.full_name}`,
       record_snapshot: smm,
     });
-    setStatusMsg(`${smm.full_name} is now ${!smm.is_locked ? "LOCKED" : "OPEN"}.`);
+    setStatusMsg(`${smm.full_name} is now ${!smm.is_locked ? "🔒 Locked" : "🟢 Active"}.`);
     await loadAllEnterpriseData();
   };
 
@@ -634,7 +634,7 @@ export default function AdminControlCenter() {
                             smm.is_locked ? "bg-red-500/20 border-red-500/40 text-red-400" : "bg-emerald-500/20 border-emerald-500/40 text-emerald-400"
                           }`}
                         >
-                          {smm.is_locked ? "Locked" : "Open"}
+                          {smm.is_locked ? "🔒 Locked" : "🟢 Active"}
                         </ActionButton>
                         <button type="button" onClick={() => openEditEmployee(smm)} className="px-3 py-1.5 rounded-xl bg-zinc-900 border border-zinc-700 text-xs text-zinc-200 font-bold">Edit</button>
                       </div>
