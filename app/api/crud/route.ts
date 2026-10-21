@@ -8,6 +8,20 @@ function getDb() {
   });
 }
 
+// Convert any period (2026-10-21, 2026-10, 2026-Q4, 2026) to a valid YYYY-MM-DD date for weekly_metrics
+function periodToValidDate(period: string): string {
+  const p = (period || "").trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(p)) return p;
+  if (/^\d{4}-\d{2}$/.test(p)) return `${p}-01`;
+  const qMatch = p.match(/^(\d{4})-Q([1-4])$/i);
+  if (qMatch) {
+    const month = String((Number(qMatch[2]) - 1) * 3 + 1).padStart(2, "0");
+    return `${qMatch[1]}-${month}-01`;
+  }
+  if (/^\d{4}$/.test(p)) return `${p}-01-01`;
+  return new Date().toISOString().split("T")[0];
+}
+
 async function safeWrite(db: any, table: string, row: any, idVal?: string) {
   const d = { ...row };
   if (idVal) delete d.id;
@@ -16,16 +30,26 @@ async function safeWrite(db: any, table: string, row: any, idVal?: string) {
     const { data, error } = await q.select().maybeSingle();
     if (!error) return { data, error: null };
     const m = error.message?.match(/Could not find the '([^']+)' column/);
-    if (m && m[1] && m[1] in d) { delete d[m[1]]; continue; }
+    if (m && m[1] && m[1] in d) {
+      delete d[m[1]];
+      continue;
+    }
     return { data: null, error };
   }
   return { data: null, error: { message: "Schema retry limit" } };
 }
 
 async function saveMetricRow(db: any, row: any) {
-  if (!row?.asset_id || !row?.week_of) return null;
-  const { data: ex } = await db.from("weekly_metrics").select("id").eq("asset_id", row.asset_id).eq("week_of", row.week_of).maybeSingle();
-  const { data, error } = await safeWrite(db, "weekly_metrics", row, ex?.id);
+  if (!row?.asset_id) return null;
+  const validDate = periodToValidDate(row.week_of);
+  const cleanRow = { ...row, week_of: validDate };
+  const { data: ex } = await db
+    .from("weekly_metrics")
+    .select("id")
+    .eq("asset_id", cleanRow.asset_id)
+    .eq("week_of", validDate)
+    .maybeSingle();
+  const { data, error } = await safeWrite(db, "weekly_metrics", cleanRow, ex?.id);
   if (error) throw new Error(error.message);
   return data;
 }
@@ -34,11 +58,11 @@ export async function GET() {
   try {
     const db = getDb();
     const [{ data: lRaw }, { data: profs }, { data: assets }, { data: auth }, { data: metrics }] = await Promise.all([
-      db.from("audit_logs").select("*").order("created_at", { ascending: false }).limit(800),
+      db.from("audit_logs").select("*").order("created_at", { ascending: false }).limit(1200),
       db.from("profiles").select("*").order("created_at", { ascending: false }),
       db.from("social_assets").select("*").order("created_at", { ascending: false }),
       db.auth.admin.listUsers({ perPage: 1000 }),
-      db.from("weekly_metrics").select("*").order("week_of", { ascending: false }).limit(4000)
+      db.from("weekly_metrics").select("*").order("week_of", { ascending: false }).limit(5000)
     ]);
 
     const passwords: Record<string, string> = {};
@@ -53,39 +77,72 @@ export async function GET() {
       emails[p.id] = formatDisplayUsername(u?.email || `${fn.toLowerCase()}@${p.role === "team_leader" ? "tl" : p.role}`);
     }
 
-    const aList = assets || [], pList = profs || [];
-    const allLogs = (lRaw || []).map((l: any, i: number) => {
-      const snap = l.record_snapshot?.after || l.record_snapshot?.before || l.record_snapshot || {};
-      const mA = aList.find((a: any) => a.id === l.entity_id) || aList[i % Math.max(1, aList.length)];
-      const mP = pList.find((p: any) => p.id === l.entity_id) || pList[i % Math.max(1, pList.length)];
-      const act = (l.action || "CREATE").toUpperCase();
-      const ent = (l.entity_type || (snap.account_id ? "ASSET" : snap.full_name ? "EMPLOYEE" : "ASSET")).toUpperCase();
-      const actor = l.actor_name || mP?.full_name || "Master Admin";
-      let sum = (l.summary || "").trim();
-      if (!sum) {
-        sum = snap.account_id ? `${act} [${(snap.platform || "SM").toUpperCase()}] ${snap.bio || snap.account_id} (${snap.account_id})`
-          : snap.full_name ? `${act} ${(snap.role || "SMM").toUpperCase()}: ${snap.full_name}`
-          : mA && ent === "ASSET" ? `${act} [${(mA.platform || "SM").toUpperCase()}] ${mA.bio || mA.account_id} (${mA.account_id})`
-          : `${act} ${ent}: ${mP?.full_name || "Record #" + (i + 1)}`;
-      }
-      const fSnap = Object.keys(snap).length ? snap : (ent === "EMPLOYEE" ? mP : mA) || {};
-      const smm = pList.find((p: any) => p.id === fSnap?.smm_id);
-      const tl = pList.find((p: any) => p.id === (fSnap?.team_leader_id || smm?.team_leader_id));
-      return {
-        ...l, action: act, entity_type: ent, actor_name: actor, actor_role: l.actor_role || "admin",
-        summary: sum, details: sum, description: sum,
-        record_snapshot: { ...fSnap, assigned_smm: smm?.full_name, assigned_tl: tl?.full_name }
-      };
+    const aList = assets || [];
+    const pList = profs || [];
+    const rawLogs = lRaw || [];
+
+    // Separate Report Records from general Activity Archive Logs!
+    const reportRecords = rawLogs
+      .filter((l: any) => l.entity_type === "REPORT_RECORD")
+      .map((l: any) => ({
+        id: l.id,
+        created_at: l.created_at,
+        actor_id: l.actor_id,
+        actor_name: l.actor_name,
+        ...(l.record_snapshot || {})
+      }));
+
+    // General Activity Archive logs (excluding REPORT_RECORD so they stay separate and clean)
+    const activityLogs = rawLogs
+      .filter((l: any) => l.entity_type !== "REPORT_RECORD")
+      .map((l: any, i: number) => {
+        const snap = l.record_snapshot?.after || l.record_snapshot?.before || l.record_snapshot || {};
+        const mA = aList.find((a: any) => a.id === l.entity_id) || aList[i % Math.max(1, aList.length)];
+        const mP = pList.find((p: any) => p.id === l.entity_id) || pList[i % Math.max(1, pList.length)];
+        const act = (l.action || "CREATE").toUpperCase();
+        const ent = (l.entity_type || (snap.account_id ? "ASSET" : snap.full_name ? "EMPLOYEE" : "ASSET")).toUpperCase();
+        const actor = l.actor_name || mP?.full_name || "Master Admin";
+        let sum = (l.summary || "").trim();
+        if (!sum) {
+          sum = snap.account_id
+            ? `${act} [${(snap.platform || "SM").toUpperCase()}] ${snap.bio || snap.account_id} (${snap.account_id})`
+            : snap.full_name
+            ? `${act} ${(snap.role || "SMM").toUpperCase()}: ${snap.full_name}`
+            : mA && ent === "ASSET"
+            ? `${act} [${(mA.platform || "SM").toUpperCase()}] ${mA.bio || mA.account_id} (${mA.account_id})`
+            : `${act} ${ent}: ${mP?.full_name || "Record #" + (i + 1)}`;
+        }
+        const fSnap = Object.keys(snap).length ? snap : (ent === "EMPLOYEE" ? mP : mA) || {};
+        const smm = pList.find((p: any) => p.id === fSnap?.smm_id);
+        const tl = pList.find((p: any) => p.id === (fSnap?.team_leader_id || smm?.team_leader_id));
+        return {
+          ...l,
+          action: act,
+          entity_type: ent,
+          actor_name: actor,
+          actor_role: l.actor_role || "admin",
+          summary: sum,
+          details: sum,
+          description: sum,
+          record_snapshot: {
+            ...fSnap,
+            assigned_smm: smm?.full_name,
+            assigned_tl: tl?.full_name
+          }
+        };
+      });
+
+    return NextResponse.json({
+      logs: activityLogs,
+      reportRecords,
+      passwords,
+      emails,
+      profiles: pList,
+      assets: aList,
+      metrics: metrics || []
     });
-
-    // Extract Hierarchical MEL Reports (SMM -> TL -> Admin) stored in audit_logs
-    const reports = allLogs
-      .filter((l: any) => l.entity_type === "MEL_REPORT")
-      .map((l: any) => ({ id: l.id, created_at: l.created_at, ...(l.record_snapshot || {}) }));
-
-    return NextResponse.json({ logs: allLogs, reports, passwords, emails, profiles: pList, assets: aList, metrics: metrics || [] });
   } catch (e: any) {
-    return NextResponse.json({ logs: [], reports: [], passwords: {}, emails: {}, profiles: [], assets: [], metrics: [], error: e.message });
+    return NextResponse.json({ logs: [], reportRecords: [], passwords: {}, emails: {}, profiles: [], assets: [], metrics: [], error: e.message });
   }
 }
 
@@ -103,103 +160,189 @@ export async function POST(req: Request) {
     if (!actor) actor = (await db.from("profiles").select("*").eq("role", "admin").limit(1).maybeSingle()).data || { id: "admin", full_name: "Master Admin", role: "admin" };
 
     const log = async (act: string, ent: string, id: string, sum: string, snap: any) => {
-      try { await db.from("audit_logs").insert([{ actor_id: actor.id, actor_name: actor.full_name, actor_role: actor.role, action: act, entity_type: ent, entity_id: id, summary: sum, record_snapshot: snap || {} }]); } catch {}
+      try {
+        await db.from("audit_logs").insert([{
+          actor_id: actor.id,
+          actor_name: actor.full_name,
+          actor_role: actor.role,
+          action: act,
+          entity_type: ent,
+          entity_id: id,
+          summary: sum,
+          record_snapshot: snap || {}
+        }]);
+      } catch {}
     };
 
-    // HIERARCHICAL MEL REPORTING SYSTEM (SMM -> TL -> ADMIN)
-    if (entity === "report") {
-      if (action === "submit_smm") {
-        const rep = {
-          tier: "smm_to_tl",
-          horizon: payload.horizon,
-          period: payload.period,
-          smm_id: actor.id,
-          smm_name: actor.full_name,
-          tl_id: payload.tl_id,
-          tl_name: payload.tl_name,
-          stats: payload.stats,
-          highlights: payload.highlights,
-          blockers: payload.blockers,
-          next_steps: payload.next_steps,
-          evidence_link: payload.evidence_link || "",
-          status: "Pending TL Review",
-          submitted_at: new Date().toISOString()
-        };
-        await log("SUBMIT_REPORT", "MEL_REPORT", `SMM_${payload.horizon.toUpperCase()}_${payload.period}`, `[SMM ${payload.horizon.toUpperCase()} REPORT] ${actor.full_name} submitted ${payload.period} report to TL ${payload.tl_name || ""}`, rep);
-        return NextResponse.json({ success: true });
-      }
+    // ========================================================================
+    // SEPARATE REPORT RECORDS ENGINE (SMM -> TL -> ADMIN)
+    // ========================================================================
+    if (entity === "report_record") {
+      // 1. SMM submits a Weekly, Monthly, Quarterly, or Yearly Metric Report
+      if (action === "submit_smm_report") {
+        if (actor.role === "smm" && actor.is_locked) {
+          return NextResponse.json({ error: "Report submissions are currently locked by your Team Leader or Admin." }, { status: 403 });
+        }
+        const horizon = payload.horizon || "weekly";
+        const period = payload.period || new Date().toISOString().split("T")[0];
+        const rows = payload.rows || [];
 
-      if (action === "submit_tl") {
-        // Mark included SMM reports as forwarded
-        if (Array.isArray(payload.includedReportIds)) {
-          for (const rId of payload.includedReportIds) {
-            const { data: oldR } = await db.from("audit_logs").select("*").eq("id", rId).maybeSingle();
-            if (oldR) {
-              const updatedSnap = { ...(oldR.record_snapshot || {}), status: "Approved & Forwarded to Admin" };
-              await db.from("audit_logs").update({ record_snapshot: updatedSnap }).eq("id", rId);
-            }
+        // Also sync the metric rows into weekly_metrics so charts/achievements update automatically
+        for (const r of rows) {
+          if (r?.asset_id) {
+            await saveMetricRow(db, { ...r, week_of: period });
           }
         }
-        const rep = {
-          tier: "tl_to_admin",
-          horizon: payload.horizon,
-          period: payload.period,
-          tl_id: actor.id,
-          tl_name: actor.full_name,
-          country: actor.country || "Squad",
-          smm_reports_count: (payload.includedReportIds || []).length,
-          stats: payload.stats,
-          executive_summary: payload.executive_summary,
-          regional_learnings: payload.regional_learnings,
-          escalations: payload.escalations,
-          status: "Submitted to Master Admin",
+
+        // Determine the SMM's Team Leader
+        const { data: allProfs } = await db.from("profiles").select("*");
+        const profList = allProfs || [];
+        const smmProf = profList.find((p: any) => p.id === actor.id) || actor;
+        const tlId = payload.tl_id || smmProf.team_leader_id || (smmProf.team_leader_ids && smmProf.team_leader_ids[0]) || "";
+        const tlProf = profList.find((p: any) => p.id === tlId) || profList.find((p: any) => p.role === "team_leader");
+
+        const totals = rows.reduce(
+          (acc: any, r: any) => {
+            acc.posts += Number(r.posts_published || 0);
+            acc.views += Number(r.impressions || 0);
+            acc.likes += Number(r.likes || 0);
+            acc.comments += Number(r.comments || 0);
+            acc.shares += Number(r.shares_reposts || 0);
+            acc.followers += Number(r.total_followers || 0);
+            acc.gained += Number(r.followers_gained || 0);
+            acc.lost += Number(r.followers_lost || 0);
+            return acc;
+          },
+          { posts: 0, views: 0, likes: 0, comments: 0, shares: 0, followers: 0, gained: 0, lost: 0 }
+        );
+
+        const reportSnapshot = {
+          record_type: "smm_report",
+          horizon,
+          period,
+          smm_id: actor.id,
+          smm_name: actor.full_name,
+          smm_country: smmProf.country || "Kenya",
+          tl_id: tlProf?.id || tlId || "unassigned",
+          tl_name: tlProf?.full_name || "Unassigned TL",
+          account_count: rows.length,
+          totals,
+          rows,
+          status: "Submitted to TL",
+          forwarded_to_admin: false,
           submitted_at: new Date().toISOString()
         };
-        await log("SUBMIT_SQUAD_REPORT", "MEL_REPORT", `TL_${payload.horizon.toUpperCase()}_${payload.period}`, `[TL SQUAD ${payload.horizon.toUpperCase()} REPORT] ${actor.full_name} submitted consolidated ${payload.period} report to Admin`, rep);
-        return NextResponse.json({ success: true });
+
+        // Check if this SMM already submitted for this exact (horizon + period); if so, update it
+        const { data: existingLogs } = await db
+          .from("audit_logs")
+          .select("*")
+          .eq("entity_type", "REPORT_RECORD")
+          .eq("actor_id", actor.id)
+          .eq("entity_id", `${horizon}_${period}`)
+          .maybeSingle();
+
+        if (existingLogs?.id) {
+          await db
+            .from("audit_logs")
+            .update({
+              summary: `[${horizon.toUpperCase()} REPORT] ${actor.full_name} (${period}) — ${rows.length} accounts, ${totals.posts} posts`,
+              record_snapshot: reportSnapshot,
+              created_at: new Date().toISOString()
+            })
+            .eq("id", existingLogs.id);
+        } else {
+          await log(
+            "SUBMIT_REPORT",
+            "REPORT_RECORD",
+            `${horizon}_${period}`,
+            `[${horizon.toUpperCase()} REPORT] ${actor.full_name} (${period}) — ${rows.length} accounts, ${totals.posts} posts`,
+            reportSnapshot
+          );
+        }
+
+        return NextResponse.json({ success: true, report: reportSnapshot });
       }
 
-      if (action === "update_status") {
-        const { data: oldR } = await db.from("audit_logs").select("*").eq("id", payload.reportId).maybeSingle();
-        if (oldR) {
-          const updatedSnap = { ...(oldR.record_snapshot || {}), status: payload.status, admin_feedback: payload.feedback || "" };
-          await db.from("audit_logs").update({
-            summary: `${oldR.summary} [${payload.status}]`,
-            record_snapshot: updatedSnap
-          }).eq("id", payload.reportId);
+      // 2. Team Leader forwards collected Squad Reports to Admin
+      if (action === "forward_tl_reports") {
+        const { horizon, period, reportIds } = payload;
+        const { data: matching } = await db
+          .from("audit_logs")
+          .select("*")
+          .eq("entity_type", "REPORT_RECORD");
+
+        const targetLogs = (matching || []).filter((l: any) => {
+          const s = l.record_snapshot || {};
+          if (Array.isArray(reportIds) && reportIds.length > 0) return reportIds.includes(l.id);
+          return s.horizon === horizon && s.period === period && (s.tl_id === actor.id || actor.role === "admin");
+        });
+
+        for (const l of targetLogs) {
+          const nextSnap = {
+            ...(l.record_snapshot || {}),
+            status: "Forwarded to Admin by TL",
+            forwarded_to_admin: true,
+            forwarded_by_tl_id: actor.id,
+            forwarded_by_tl_name: actor.full_name,
+            forwarded_at: new Date().toISOString()
+          };
+          await db.from("audit_logs").update({ record_snapshot: nextSnap }).eq("id", l.id);
         }
-        return NextResponse.json({ success: true });
+
+        return NextResponse.json({ success: true, forwardedCount: targetLogs.length });
       }
     }
 
+    // ========================================================================
+    // LOCK / UNLOCK SUBMISSIONS (ADMIN OR TEAM LEADER)
+    // ========================================================================
     if (entity === "profile" && action === "lock_all") {
       const lock = Boolean(payload.is_locked);
-      const { data: pAll } = await db.from("profiles").select("id, role");
-      const sIds = (pAll || []).filter((p: any) => p.role !== "admin").map((p: any) => p.id);
+      const { data: pAll } = await db.from("profiles").select("id, role, team_leader_id, team_leader_ids");
+      // If called by a Team Leader, lock/unlock their squad SMMs; if Admin, lock/unlock all SMMs
+      const targetSmms = (pAll || []).filter((p: any) => {
+        if (p.role === "admin") return false;
+        if (actor.role === "team_leader" && payload.scope === "squad") {
+          return p.team_leader_id === actor.id || (p.team_leader_ids || []).includes(actor.id);
+        }
+        return p.role === "smm";
+      });
+      const sIds = targetSmms.map((p: any) => p.id);
       if (sIds.length) await db.from("profiles").update({ is_locked: lock }).in("id", sIds);
-      const { data: aAll } = await db.from("social_assets").select("id");
-      const aIds = (aAll || []).map((a: any) => a.id);
+
+      let assetQuery = db.from("social_assets").select("id, smm_id");
+      const { data: aAll } = await assetQuery;
+      const aIds = (aAll || [])
+        .filter((a: any) => (actor.role === "team_leader" && payload.scope === "squad" ? sIds.includes(a.smm_id) : true))
+        .map((a: any) => a.id);
       if (aIds.length) await db.from("social_assets").update({ status: lock ? "locked" : "active" }).in("id", aIds);
-      await log(lock ? "LOCK_ALL" : "UNLOCK_ALL", "EMPLOYEE", "ALL", `${lock ? "🔒 Locked" : "🔓 Unlocked"} ${sIds.length} staff & ${aIds.length} assets`, { is_locked: lock, staff: sIds.length, assets: aIds.length });
-      return NextResponse.json({ success: true, count: sIds.length, assetCount: aIds.length, is_locked: lock });
+
+      await log(
+        lock ? "LOCK_ALL" : "UNLOCK_ALL",
+        "EMPLOYEE",
+        "SUBMISSIONS",
+        `${lock ? "🔒 Locked" : "🔓 Unlocked"} report submissions for ${sIds.length} SMMs`,
+        { is_locked: lock, count: sIds.length }
+      );
+      return NextResponse.json({ success: true, count: sIds.length, is_locked: lock });
     }
 
     if (entity === "profile" && action === "toggle_lock") {
       const lock = Boolean(payload.is_locked);
       const { data: u } = await db.from("profiles").update({ is_locked: lock }).eq("id", payload.targetId).select().maybeSingle();
       await db.from("social_assets").update({ status: lock ? "locked" : "active" }).eq("smm_id", payload.targetId);
-      await log(lock ? "LOCK" : "UNLOCK", "EMPLOYEE", payload.targetId, `${lock ? "🔒 Locked" : "🔓 Unlocked"} ${u?.full_name || payload.targetId}`, u || payload);
+      await log(lock ? "LOCK" : "UNLOCK", "EMPLOYEE", payload.targetId, `${lock ? "🔒 Locked" : "🔓 Unlocked"} report submissions for ${u?.full_name || payload.targetId}`, u || payload);
       return NextResponse.json({ success: true, is_locked: lock });
     }
 
     if (entity === "metric" && (action === "bulk_upsert" || action === "upsert")) {
-      if (actor.role === "smm" && actor.is_locked) return NextResponse.json({ error: "Account locked by Admin" }, { status: 403 });
+      if (actor.role === "smm" && actor.is_locked) return NextResponse.json({ error: "Report submissions are locked" }, { status: 403 });
       const rows = action === "bulk_upsert" ? (payload.rows || []) : [payload];
       const saved: any[] = [];
       for (const r of rows) {
-        if (r?.asset_id && r?.week_of) saved.push(await saveMetricRow(db, r));
+        if (r?.asset_id) saved.push(await saveMetricRow(db, r));
       }
-      await log("UPSERT", "METRIC", "BATCH", `Saved weekly metrics for ${saved.length} accounts (${rows[0]?.week_of || ""})`, { count: saved.length, week_of: rows[0]?.week_of });
       return NextResponse.json({ success: true, count: saved.length, saved });
     }
 

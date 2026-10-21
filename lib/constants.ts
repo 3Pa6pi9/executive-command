@@ -262,3 +262,114 @@ export function computeAchievements(assets: any[] = [], metrics: any[] = [], ...
     { id: "net", title: "Followers Gained / Lost", desc: `+${gained.toLocaleString()} gained / -${lost.toLocaleString()} lost`, icon: "📈", unlocked: net >= 0, progress: 100, stat: `${net >= 0 ? "+" : ""}${net.toLocaleString()} Net` }
   ];
 }
+
+export function exportSubmittedReportsCSV({
+  reports = [],
+  teamLeaders = [],
+  smms = [],
+  horizonFilter = "all",
+  periodFilter = "",
+  tlFilter = "all",
+  detailedAccountRows = false,
+  scopeLabel = "Admin_Submitted_Reports",
+}: any) {
+  const tlMap = new Map<string, any>();
+  for (const tl of teamLeaders) tlMap.set(tl.id, tl);
+  const smmMap = new Map<string, any>();
+  for (const s of smms) smmMap.set(s.id, s);
+
+  const filtered = (reports || []).filter((r: any) => {
+    if (horizonFilter !== "all" && r.horizon !== horizonFilter) return false;
+    if (periodFilter && r.period !== periodFilter) return false;
+    if (tlFilter !== "all") {
+      const s = smmMap.get(r.author_id);
+      const resolvedTlId = r.tl_id || s?.team_leader_id || s?.team_leader_ids?.[0];
+      if (resolvedTlId !== tlFilter) return false;
+    }
+    return true;
+  });
+
+  if (detailedAccountRows) {
+    const headers = [
+      "Submitted At", "Horizon", "Period", "Team Leader", "SMM Handler",
+      "Report Status", "Platform", "Account Name", "Username",
+      "Posts", "Views", "Likes", "Comments", "Reposts",
+      "Total Followers", "Followers Gained", "Followers Lost", "Report Summary"
+    ];
+    const rows: string[] = [];
+    for (const r of filtered) {
+      const s = smmMap.get(r.author_id);
+      const resolvedTlId = r.tl_id || s?.team_leader_id || s?.team_leader_ids?.[0];
+      const tlName = tlMap.get(resolvedTlId)?.full_name || "Unassigned TL";
+      const acctRows = Array.isArray(r.account_rows) && r.account_rows.length > 0 ? r.account_rows : [{}];
+      for (const ar of acctRows) {
+        rows.push([
+          `"${r.submitted_at || r.created_at || ""}"`,
+          `"${(r.horizon || "weekly").toUpperCase()}"`,
+          `"${r.period || ""}"`,
+          `"${tlName}"`,
+          `"${r.author_name || s?.full_name || "SMM"}"`,
+          `"${r.status || "Submitted"}"`,
+          `"${(ar.platform || "").toUpperCase()}"`,
+          `"${ar.account_name || ""}"`,
+          `"${ar.account_handle || ""}"`,
+          Number(ar.posts_published ?? r.stats?.posts ?? 0),
+          Number(ar.impressions ?? r.stats?.views ?? 0),
+          Number(ar.likes ?? r.stats?.likes ?? 0),
+          Number(ar.comments ?? 0),
+          Number(ar.shares_reposts ?? 0),
+          Number(ar.total_followers ?? r.stats?.followers ?? 0),
+          Number(ar.followers_gained ?? r.stats?.gained ?? 0),
+          Number(ar.followers_lost ?? r.stats?.lost ?? 0),
+          `"${(r.highlights || "").replace(/"/g, '""')}"`
+        ].join(","));
+      }
+    }
+    const blob = new Blob([[headers.join(","), ...rows].join("\n")], { type: "text/csv;charset=utf-8;" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.setAttribute("download", `${scopeLabel}_Detailed_Accounts_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link); link.click(); document.body.removeChild(link);
+    return;
+  }
+
+  const headers = [
+    "Submitted At", "Horizon", "Period", "Tier", "Team Leader", "SMM Handler",
+    "Country", "Status", "Total Accounts", "Total Posts", "Total Views",
+    "Total Likes", "Total Followers", "Followers Gained", "Followers Lost",
+    "Net Followers", "Report Summary / Highlights"
+  ];
+
+  const rows = filtered.map((r: any) => {
+    const s = smmMap.get(r.author_id);
+    const resolvedTlId = r.tl_id || s?.team_leader_id || s?.team_leader_ids?.[0];
+    const tlName = tlMap.get(resolvedTlId)?.full_name || (r.tier === "tl_to_admin" ? r.author_name : "Unassigned TL");
+    const st = r.stats || {};
+    const net = Number(st.netFollowers ?? (Number(st.gained || 0) - Number(st.lost || 0)));
+    return [
+      `"${r.submitted_at || r.created_at || ""}"`,
+      `"${(r.horizon || "weekly").toUpperCase()}"`,
+      `"${r.period || ""}"`,
+      `"${r.tier === "tl_to_admin" ? "TL Consolidated Report" : "SMM Report"}"`,
+      `"${tlName}"`,
+      `"${r.author_name || s?.full_name || ""}"`,
+      `"${s?.country || ""}"`,
+      `"${r.status || "Submitted"}"`,
+      Number(st.accounts || 0),
+      Number(st.posts || 0),
+      Number(st.views || 0),
+      Number(st.likes || 0),
+      Number(st.followers || 0),
+      Number(st.gained || 0),
+      Number(st.lost || 0),
+      net,
+      `"${(r.highlights || "").replace(/"/g, '""')}"`
+    ].join(",");
+  });
+
+  const blob = new Blob([[headers.join(","), ...rows].join("\n")], { type: "text/csv;charset=utf-8;" });
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.setAttribute("download", `${scopeLabel}_${horizonFilter.toUpperCase()}_${new Date().toISOString().slice(0, 10)}.csv`);
+  document.body.appendChild(link); link.click(); document.body.removeChild(link);
+}

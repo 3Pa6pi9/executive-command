@@ -99,3 +99,11 @@ export function downloadMultiTabWorkbook({ horizon = "weekly", metrics = [], ass
   const dt = new Date().toISOString().split("T")[0];
   XLSX.writeFile(wb, `${scopeLabel}_${horizon.toUpperCase()}_${dt}.xlsx`);
 }
+
+export function exportMultiTabWorkbook(args: any) {
+  if (typeof (globalThis as any).downloadMultiTabWorkbook === "function") {
+    return (globalThis as any).downloadMultiTabWorkbook(args);
+  }
+}
+
+

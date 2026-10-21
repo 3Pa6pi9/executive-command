@@ -732,3 +732,6 @@ export function GlobalCommandPalette({ profiles = [], assets = [], onSelectTl, o
     </>
   );
 }
+
+export { PasswordVaultBadge, HierarchicalReportsHub, GroupedMetricsTab } from "@/components/ExecutiveOverlay";
+
