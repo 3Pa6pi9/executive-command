@@ -57,7 +57,7 @@ export async function GET() {
   try {
     const db = getDb();
     const [{ data: lRaw }, { data: profs }, { data: assets }, { data: auth }, { data: metrics }] = await Promise.all([
-      db.from("audit_logs").select("*").order("created_at", { ascending: false }).limit(1500),
+      db.from("audit_logs").select("*").order("created_at", { ascending: false }).limit(2000),
       db.from("profiles").select("*").order("created_at", { ascending: false }),
       db.from("social_assets").select("*").order("created_at", { ascending: false }),
       db.auth.admin.listUsers({ perPage: 1000 }),
@@ -80,19 +80,23 @@ export async function GET() {
     const pList = profs || [];
     const rawLogs = lRaw || [];
 
-    // Extract all report records from audit_logs where entity_type is REPORT_RECORD or action contains REPORT
+    // Inclusive report record extraction
     const reportRecords = rawLogs
       .filter((l: any) => l.entity_type === "REPORT_RECORD" || l.action?.includes("REPORT") || (l.record_snapshot && l.record_snapshot.horizon))
       .map((l: any) => {
         const snap = l.record_snapshot?.after || l.record_snapshot?.before || l.record_snapshot || {};
+        const smmProf = pList.find((p: any) => p.id === (snap.smm_id || l.actor_id));
+        const tlId = snap.tl_id || smmProf?.team_leader_id || (smmProf?.team_leader_ids && smmProf.team_leader_ids[0]) || "";
+        const tlProf = pList.find((p: any) => p.id === tlId);
+
         return {
           id: l.id,
           created_at: l.created_at,
           actor_id: l.actor_id || snap.smm_id,
           smm_id: snap.smm_id || l.actor_id,
-          smm_name: snap.smm_name || l.actor_name,
-          tl_id: snap.tl_id,
-          tl_name: snap.tl_name,
+          smm_name: snap.smm_name || smmProf?.full_name || l.actor_name || "SMM User",
+          tl_id: tlProf?.id || tlId || "unassigned",
+          tl_name: tlProf?.full_name || snap.tl_name || "Team Leader",
           horizon: snap.horizon || "weekly",
           period: snap.period || "current",
           account_count: snap.account_count || (snap.rows || []).length,

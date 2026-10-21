@@ -518,9 +518,11 @@ export function HierarchicalReportsHub(_props: any) {
                 (s: any) => s.team_leader_id === tl.id || (s.team_leader_ids || []).includes(tl.id)
               );
               const smmIdsUnderTl = new Set(smmsUnderTl.map((s: any) => s.id));
-              const groupReports = periodReports.filter(
-                (r: any) => r.tl_id === tl.id || smmIdsUnderTl.has(r.smm_id)
-              );
+              const groupReports = periodReports.filter((r: any) => {
+    if (r.tl_id === tl.id || smmIdsUnderTl.has(r.smm_id)) return true;
+    if ((!r.tl_id || r.tl_id === "unassigned") && smmsUnderTl.length === 0) return true;
+    return false;
+  });
               const submittedIds = new Set(groupReports.map((r: any) => r.smm_id));
               const submittedSmms = smmsUnderTl.filter((s: any) => submittedIds.has(s.id));
 
