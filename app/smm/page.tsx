@@ -355,45 +355,66 @@ export default function SMMDashboard() {
         )}
 
         {activeTab === "register" && (
-          <form onSubmit={handleRegisterAsset} className="max-w-2xl mx-auto bg-zinc-950 border border-zinc-800 rounded-2xl p-6 sm:p-8 space-y-4 shadow-xl">
-            <h2 className="text-xl font-bold text-white">Add Asset</h2>
+          <form onSubmit={handleRegisterAsset} className="max-w-3xl mx-auto bg-zinc-950 border border-zinc-800 rounded-2xl p-6 sm:p-8 space-y-4 shadow-xl">
+            <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
+              <h2 className="text-lg font-extrabold text-white">Add New Social Media Asset (Complete Details)</h2>
+              <span className="text-[11px] text-emerald-400 font-bold">All 12 Asset Fields</span>
+            </div>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div>
-                <label className="text-[10px] uppercase font-bold text-zinc-400">Platform</label>
+                <label className="text-[10px] uppercase font-bold text-zinc-400">1. Platform</label>
                 <select value={regPlatform} onChange={(e) => setRegPlatform(e.target.value)} className="w-full mt-1 rounded-xl bg-black border border-zinc-800 p-3 text-xs text-white uppercase">{PLATFORMS.map(p => <option key={p} value={p}>{p}</option>)}</select>
               </div>
               <div>
-                <label className="text-[10px] uppercase font-bold text-zinc-400">Team Leader</label>
+                <label className="text-[10px] uppercase font-bold text-zinc-400">2. Supervising Team Leader</label>
                 <select value={regTlId} onChange={(e) => setRegTlId(e.target.value)} className="w-full mt-1 rounded-xl bg-black border border-zinc-800 p-3 text-xs text-white">{teamLeaders.map(tl => <option key={tl.id} value={tl.id}>{tl.full_name}</option>)}</select>
               </div>
               <div>
-                <label className="text-[10px] uppercase font-bold text-zinc-400">Country</label>
+                <label className="text-[10px] uppercase font-bold text-zinc-400">3. Target Country</label>
                 <select value={countryLanguage} onChange={(e) => setCountryLanguage(e.target.value)} className="w-full mt-1 rounded-xl bg-black border border-zinc-800 p-3 text-xs text-white">{ALL_COUNTRIES.map(c => <option key={c} value={c}>{c}</option>)}</select>
               </div>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
-                <label className="text-[10px] uppercase font-bold text-zinc-400">Operating Language</label>
+                <label className="text-[10px] uppercase font-bold text-zinc-400">4. Operating Language</label>
                 <select value={assetLang} onChange={(e) => setAssetLang(e.target.value)} className="w-full mt-1 rounded-xl bg-black border border-zinc-800 p-3 text-xs text-white">{ASSET_LANGUAGES.map(l => <option key={l} value={l}>{l}</option>)}</select>
               </div>
               <div>
-                <label className="text-[10px] uppercase font-bold text-zinc-400">Account Name</label>
-                <input type="text" required value={bio} onChange={(e) => setBio(e.target.value)} placeholder="Account Name (Display Name)" className="w-full mt-1 rounded-xl bg-black border border-zinc-800 p-3 text-xs text-white" />
+                <label className="text-[10px] uppercase font-bold text-zinc-400">5. Account Display Name / Bio</label>
+                <input type="text" required value={bio} onChange={(e) => setBio(e.target.value)} placeholder="Account Display Name" className="w-full mt-1 rounded-xl bg-black border border-zinc-800 p-3 text-xs text-white" />
               </div>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <input type="text" required value={accountId} onChange={(e) => setAccountId(e.target.value)} placeholder={regPlatform === "twitter" ? "Twitter Username" : "Account Username / ID"} className="w-full rounded-xl bg-black border border-zinc-800 p-3 text-xs text-white" />
-              <input type="text" required value={accountPassword} onChange={(e) => setAccountPassword(e.target.value)} placeholder="Account Password" className="w-full rounded-xl bg-black border border-zinc-800 p-3 text-xs text-white" />
-              <input type="text" value={email} onChange={(e) => setEmail(e.target.value)} placeholder={regPlatform === "facebook" ? "Facebook Email or Phone Number" : "Email Address"} className="w-full rounded-xl bg-black border border-zinc-800 p-3 text-xs text-white" />
+              <div>
+                <label className="text-[10px] uppercase font-bold text-zinc-400">6. Username / @Handle / ID</label>
+                <input type="text" required value={accountId} onChange={(e) => setAccountId(e.target.value)} placeholder={regPlatform === "twitter" ? "Twitter @Username" : "Account Username / ID"} className="w-full mt-1 rounded-xl bg-black border border-zinc-800 p-3 text-xs text-white font-mono" />
+              </div>
+              <div>
+                <label className="text-[10px] uppercase font-bold text-zinc-400">7. Account Login Password</label>
+                <input type="text" required value={accountPassword} onChange={(e) => setAccountPassword(e.target.value)} placeholder="Account Login Password" className="w-full mt-1 rounded-xl bg-black border border-zinc-800 p-3 text-xs text-white font-mono" />
+              </div>
+              <div>
+                <label className="text-[10px] uppercase font-bold text-zinc-400">8. {regPlatform === "facebook" ? "Facebook Email or Phone Number" : "Linked Recovery Email"}</label>
+                <input type="text" value={email} onChange={(e) => setEmail(e.target.value)} placeholder={regPlatform === "facebook" ? "Facebook Email or Phone" : "Recovery Email Address"} className="w-full mt-1 rounded-xl bg-black border border-zinc-800 p-3 text-xs text-white font-mono" />
+              </div>
               {!(regPlatform === "facebook" && isPhoneInput(email)) ? (
-                <input type="text" value={emailPassword} onChange={(e) => setEmailPassword(e.target.value)} placeholder="Email Password" className="w-full rounded-xl bg-black border border-zinc-800 p-3 text-xs text-white" />
+                <div>
+                  <label className="text-[10px] uppercase font-bold text-zinc-400">9. Recovery Email Password</label>
+                  <input type="text" value={emailPassword} onChange={(e) => setEmailPassword(e.target.value)} placeholder="Email Password" className="w-full mt-1 rounded-xl bg-black border border-zinc-800 p-3 text-xs text-white font-mono" />
+                </div>
               ) : (
-                <div className="flex items-center px-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-[11px] text-emerald-300 font-medium">✓ Phone number entered — no email password needed</div>
+                <div className="flex items-center px-3 py-2 mt-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-[11px] text-emerald-300 font-bold">✓ Phone number entered — no email password needed</div>
               )}
-              <input type="url" value={profileLink} onChange={(e) => setProfileLink(e.target.value)} placeholder="Profile URL (https://...)" className="w-full rounded-xl bg-black border border-zinc-800 p-3 text-xs text-white" />
-              <input type="text" value={twoFaCode} onChange={(e) => setTwoFaCode(e.target.value)} placeholder="2FA Secret / Code (Optional)" className="w-full rounded-xl bg-black border border-zinc-800 p-3 text-xs text-white" />
+              <div>
+                <label className="text-[10px] uppercase font-bold text-zinc-400">10. Profile URL</label>
+                <input type="url" value={profileLink} onChange={(e) => setProfileLink(e.target.value)} placeholder="https://..." className="w-full mt-1 rounded-xl bg-black border border-zinc-800 p-3 text-xs text-white" />
+              </div>
+              <div>
+                <label className="text-[10px] uppercase font-bold text-zinc-400">11. 2FA Secret / Backup Code</label>
+                <input type="text" value={twoFaCode} onChange={(e) => setTwoFaCode(e.target.value)} placeholder="2FA Secret / Code (Optional)" className="w-full mt-1 rounded-xl bg-black border border-zinc-800 p-3 text-xs text-white font-mono" />
+              </div>
             </div>
-            <button type="submit" className="w-full py-3.5 bg-emerald-500 hover:bg-emerald-400 text-black font-bold rounded-xl text-xs active:scale-95 transition-all">Add Asset</button>
+            <button type="submit" className="w-full py-3.5 bg-emerald-500 hover:bg-emerald-400 text-black font-extrabold rounded-xl text-xs">✓ Add Complete Asset</button>
           </form>
         )}
 
